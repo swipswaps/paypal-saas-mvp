@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>PayPal SaaS Subscription MVP — Audited</title>
 <style>
-  :root { --bg:#0f172a; --card:#1e293b; --fg:#e2e8f0; --muted:#94a3b8; --accent:#38bdf8; --warn:#fbbf24; }
+  :root { --bg:#0f172a; --card:#1e293b; --fg:#e2e8f0; --muted:#94a3b8; --accent:#38bdf8; --warn:#fbbf24; --ok:#34d399; --err:#f87171; }
   body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
          margin:0; background:var(--bg); color:var(--fg); line-height:1.55; }
   header { padding:2.5rem 1.25rem 1.5rem; text-align:center; border-bottom:1px solid #334155; }
@@ -24,6 +24,8 @@
   p code, li code, td code { background:#0b1220; padding:.1rem .35rem; border-radius:.3rem; font-size:.85em; }
   .warn { border-left:4px solid var(--warn); background:#2a2416; }
   .warn strong { color:var(--warn); }
+  .ok  { color:var(--ok); font-weight:600; }
+  .bad { color:var(--err); font-weight:600; }
   table { width:100%; border-collapse:collapse; font-size:.88rem; }
   th, td { text-align:left; padding:.45rem .55rem; border-bottom:1px solid #334155; vertical-align:top; }
   th { color:var(--muted); font-weight:600; }
@@ -63,6 +65,18 @@
   <strong>GitHub Pages is static-only.</strong>
   The Flask app, SQLite database, and PayPal webhook listener cannot run on Pages.
   This site is documentation. Run the app in Docker or a Proxmox LXC container.
+</section>
+
+<section id="local-status">
+  <h2>Local backend status</h2>
+  <p id="be-msg">Checking <code>http://localhost:5000/health</code>&hellip;</p>
+  <noscript>JavaScript is required to run this check.</noscript>
+  <p style="font-size:.85rem;color:var(--muted)">
+    This probe is loopback-only. The browser at <code>https://swipswaps.github.io/...</code>
+    sends a CORS request to <code>http://localhost:5000</code>. A green result means the
+    Flask app is running on this machine. If you see red, start it with
+    <code>docker compose up -d --build</code> from the project directory.
+  </p>
 </section>
 
 <section id="quickstart">
@@ -178,6 +192,26 @@ python app.py</code></pre>
 <footer>
   <p>Source: <a href="https://github.com/swipswaps/paypal-saas-mvp">github.com/swipswaps/paypal-saas-mvp</a></p>
 </footer>
+
+<script>
+(function () {
+  var msg = document.getElementById('be-msg');
+  if (!msg) return;
+  var ctrl = new AbortController();
+  var timer = setTimeout(function(){ ctrl.abort(); }, 2500);
+  fetch('http://localhost:5000/health', { signal: ctrl.signal, mode: 'cors' })
+    .then(function (r) { clearTimeout(timer); if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+    .then(function (j) {
+      msg.innerHTML = '<span class="ok">Local backend detected</span> — ' +
+        '<code>' + j.status + '</code>. Open <a href="http://localhost:5000/">http://localhost:5000/</a>.';
+    })
+    .catch(function (e) {
+      clearTimeout(timer);
+      msg.innerHTML = '<span class="bad">No local backend detected</span> (' + e.message + '). ' +
+        'Start it: <code>docker compose up -d --build</code> from the project directory, then reload this page.';
+    });
+})();
+</script>
 
 </body>
 </html>

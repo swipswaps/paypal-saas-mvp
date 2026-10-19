@@ -8,36 +8,45 @@ from cryptography.hazmat.primitives.asymmetric import padding
 from paypalserversdk.paypal_serversdk_client import PaypalServersdkClient
 from paypalserversdk.http.auth.o_auth_2 import ClientCredentialsAuthCredentials
 from paypalserversdk.configuration import Environment
+
 load_dotenv()
+
 app = Flask(__name__)
 _secret = os.getenv("SECRET_KEY", "")
 if not _secret or _secret == "replace-with-a-long-random-string":
     print("WARNING: SECRET_KEY is not set or is the placeholder value.", flush=True)
     _secret = os.urandom(32).hex()
 app.secret_key = _secret
+
 CLIENT_ID     = os.getenv("PAYPAL_CLIENT_ID")
 CLIENT_SECRET = os.getenv("PAYPAL_CLIENT_SECRET")
 WEBHOOK_ID    = os.getenv("WEBHOOK_ID")
 BASE_URL      = os.getenv("BASE_URL", "http://localhost:5000").rstrip("/")
 API_BASE      = os.getenv("PAYPAL_API_BASE", "https://api-m.sandbox.paypal.com")
+
 paypal = PaypalServersdkClient(
     client_credentials_auth_credentials=ClientCredentialsAuthCredentials(
         o_auth_client_id=CLIENT_ID, o_auth_client_secret=CLIENT_SECRET),
     environment=Environment.SANDBOX)
+
 PLANS = {
     "basic": {"name": "Basic Tier", "price": "9.99",  "plan_id": os.getenv("PLAN_ID_BASIC")},
     "pro":   {"name": "Pro Tier",   "price": "29.99", "plan_id": os.getenv("PLAN_ID_PRO")}}
+
 DB_NAME = "saas_shop.db"
+
 def get_db():
     if "db" not in g:
         g.db = sqlite3.connect(DB_NAME, timeout=15)
         g.db.row_factory = sqlite3.Row
         g.db.execute("PRAGMA journal_mode=WAL;")
     return g.db
+
 @app.teardown_appcontext
 def close_db(exc):
     db = g.pop("db", None)
     if db: db.close()
+
 def init_db():
     with sqlite3.connect(DB_NAME, timeout=15) as conn:
         conn.execute("PRAGMA journal_mode=WAL;")
@@ -50,13 +59,16 @@ def init_db():
             payload TEXT, received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
         conn.commit()
 init_db()
+
 def current_user():
     uid = session.get("user_id")
     if not uid: return None
     return get_db().execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()
+
 @app.route("/")
 def index():
     return render_template("index.html", user=current_user(), plans=PLANS)
+
 @app.route("/register", methods=["GET", "POST"])
 def register():
     if request.method == "POST":
@@ -68,6 +80,7 @@ def register():
         except sqlite3.IntegrityError:
             return render_template("register.html", error="Email already registered.")
     return render_template("register.html")
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
@@ -77,20 +90,24 @@ def login():
             session["user_id"] = user["id"]; return redirect(url_for("dashboard"))
         return render_template("login.html", error="Invalid credentials.")
     return render_template("login.html")
+
 @app.route("/logout")
 def logout():
     session.clear(); return redirect(url_for("index"))
+
 @app.route("/dashboard")
 def dashboard():
     user = current_user()
     if not user: return redirect(url_for("login"))
     return render_template("dashboard.html", user=user, plans=PLANS)
+
 @app.route("/premium")
 def premium():
     user = current_user()
     if not user or user["tier"] == "free":
         return render_template("upgrade_required.html", user=user)
     return render_template("premium.html", user=user)
+
 @app.route("/subscribe/<tier>")
 def subscribe(tier):
     user = current_user()
@@ -108,9 +125,11 @@ def subscribe(tier):
     for link in resp.body.links:
         if link.rel == "approve": return redirect(link.href)
     return "No approval link returned by PayPal.", 500
+
 @app.route("/subscription/success")
 def subscription_success():
     return render_template("success.html", user=current_user())
+
 @app.route("/cancel-subscription")
 def cancel_subscription():
     user = current_user()
@@ -121,6 +140,7 @@ def cancel_subscription():
     except Exception as e:
         app.logger.error("Cancel error: %s", e)
     return redirect(url_for("dashboard"))
+
 def verify_webhook(raw: bytes, headers) -> bool:
     tid   = headers.get("PAYPAL-TRANSMISSION-ID")
     ttime = headers.get("PAYPAL-TRANSMISSION-TIME")
@@ -136,6 +156,7 @@ def verify_webhook(raw: bytes, headers) -> bool:
         return True
     except Exception as e:
         app.logger.warning("Webhook verify failed: %s", e); return False
+
 @app.route("/webhook", methods=["POST"])
 def webhook():
     raw = request.get_data()
@@ -166,12 +187,19 @@ def webhook():
         if ref:
             db.execute("UPDATE users SET subscription_status='active' WHERE subscription_id=?", (ref,)); db.commit()
     return jsonify({"status": "success"}), 200
+
 @app.route("/events")
 def view_events():
     rows = get_db().execute("SELECT * FROM webhook_events ORDER BY received_at DESC LIMIT 50").fetchall()
     return render_template("events.html", events=rows)
+
 @app.route("/health")
 def health():
-    return jsonify({"status": "healthy"}), 200
+    resp = jsonify({"status": "healthy"})
+    resp.headers["Access-Control-Allow-Origin"] = "https://swipswaps.github.io"
+    resp.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
+    resp.headers["Vary"] = "Origin"
+    return resp
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=False)
