@@ -1,12 +1,183 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8">
+<html lang="en">
+<head>
+<meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>PayPal SaaS MVP — Docs</title>
-<style>body{font-family:system-ui;max-width:720px;margin:4rem auto;padding:0 1rem;background:#0f172a;color:#e2e8f0}
-code{background:#1e293b;padding:.15rem .35rem;border-radius:.3rem}a{color:#38bdf8}</style></head>
-<body><h1>PayPal SaaS Subscription MVP</h1>
-<p>Static landing page. The Flask app and webhook listener run in Docker or Proxmox LXC.</p>
-<pre><code>git clone &lt;repo-url&gt;
-cd paypal-saas-mvp && cp .env.example .env
-python setup_plans.py && docker compose up --build -d</code></pre>
-<p>See README.txt in the repo. Credits: NeuralNine.</p></body></html>
+<title>PayPal SaaS Subscription MVP — Audited</title>
+<style>
+  :root { --bg:#0f172a; --card:#1e293b; --fg:#e2e8f0; --muted:#94a3b8; --accent:#38bdf8; --warn:#fbbf24; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+         margin:0; background:var(--bg); color:var(--fg); line-height:1.55; }
+  header { padding:2.5rem 1.25rem 1.5rem; text-align:center; border-bottom:1px solid #334155; }
+  header h1 { margin:0 0 .35rem; font-size:1.9rem; }
+  header p { margin:.25rem 0; color:var(--muted); }
+  header .links a { color:var(--accent); margin:0 .4rem; text-decoration:none; }
+  header .links a:hover { text-decoration:underline; }
+  main { max-width:860px; margin:0 auto; padding:1.5rem 1.25rem 3rem; }
+  section { background:var(--card); border:1px solid #334155; border-radius:.75rem;
+            padding:1.25rem 1.4rem; margin-bottom:1rem; }
+  section h2 { margin-top:0; font-size:1.25rem; border-bottom:1px solid #334155; padding-bottom:.4rem; }
+  section h3 { font-size:1rem; margin:1.1rem 0 .35rem; color:var(--accent); }
+  pre { background:#0b1220; border:1px solid #334155; border-radius:.5rem;
+        padding:.75rem .9rem; overflow-x:auto; font-size:.85rem; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  p code, li code, td code { background:#0b1220; padding:.1rem .35rem; border-radius:.3rem; font-size:.85em; }
+  .warn { border-left:4px solid var(--warn); background:#2a2416; }
+  .warn strong { color:var(--warn); }
+  table { width:100%; border-collapse:collapse; font-size:.88rem; }
+  th, td { text-align:left; padding:.45rem .55rem; border-bottom:1px solid #334155; vertical-align:top; }
+  th { color:var(--muted); font-weight:600; }
+  ul { padding-left:1.2rem; margin:.4rem 0; }
+  a { color:var(--accent); }
+  iframe { width:100%; height:640px; border:1px solid #334155; border-radius:.5rem; background:#0b1220; }
+  details { margin-top:.75rem; }
+  details summary { cursor:pointer; color:var(--accent); }
+  footer { text-align:center; color:var(--muted); font-size:.85rem; padding:1.5rem 1rem 2rem; }
+  .badge { display:inline-block; background:#0b1220; border:1px solid #334155;
+           border-radius:999px; padding:.1rem .6rem; font-size:.75rem; color:var(--muted); margin:0 .15rem; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>PayPal SaaS Subscription MVP</h1>
+  <p>Audited, idempotent edition &middot; Flask + SQLite (WAL) + PayPal Server SDK</p>
+  <p class="links">
+    <a href="https://github.com/swipswaps/paypal-saas-mvp">GitHub repo</a> &middot;
+    <a href="https://github.com/swipswaps/paypal-saas-mvp/blob/main/README.txt">README.txt on GitHub</a> &middot;
+    <a href="README.txt">README.txt on this site</a> &middot;
+    <a href="https://youtu.be/zSExhXEfhJo">Original tutorial</a>
+  </p>
+  <p>
+    <span class="badge">Python 3.10+</span>
+    <span class="badge">Flask 3</span>
+    <span class="badge">paypalserversdk 2.x</span>
+    <span class="badge">Docker</span>
+    <span class="badge">Proxmox LXC</span>
+  </p>
+</header>
+
+<main>
+
+<section class="warn">
+  <strong>GitHub Pages is static-only.</strong>
+  The Flask app, SQLite database, and PayPal webhook listener cannot run on Pages.
+  This site is documentation. Run the app in Docker or a Proxmox LXC container.
+</section>
+
+<section id="quickstart">
+  <h2>Quick start</h2>
+
+  <h3>1. Clone</h3>
+  <pre><code>git clone https://github.com/swipswaps/paypal-saas-mvp.git
+cd paypal-saas-mvp</code></pre>
+
+  <h3>2. Install Python dependencies</h3>
+  <pre><code>python3 -m venv .venv
+. .venv/bin/activate
+pip install flask paypal-server-sdk python-dotenv requests Werkzeug cryptography</code></pre>
+  <p><em>Skip this only if you will use Docker exclusively. This step is what prevents
+  <code>python setup_plans.py</code> from failing with
+  <code>ModuleNotFoundError: requests</code> or a broken <code>urllib3</code> import.</em></p>
+
+  <h3>3. Configure environment</h3>
+  <pre><code>cp .env.example .env
+# Edit .env and fill in:
+#   PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET  -> https://developer.paypal.com/dashboard/applications
+#   SECRET_KEY                              -> long random string
+#   BASE_URL                                -> your ngrok static HTTPS URL (step 5)
+# Enable "Catalog" and "Subscriptions" scopes on the PayPal app.</code></pre>
+
+  <h3>4. Register subscription plans</h3>
+  <pre><code>python setup_plans.py
+# Copy the printed PLAN_ID_BASIC and PLAN_ID_PRO into .env</code></pre>
+
+  <h3>5. Expose webhooks with ngrok</h3>
+  <pre><code># Claim a free static domain at:
+#   https://dashboard.ngrok.com/cloud-edge/domains
+ngrok http --domain=your-static-name.ngrok-free.app 5000</code></pre>
+  <p>Set <code>BASE_URL</code> in <code>.env</code> to that HTTPS URL.
+  In the PayPal Developer Dashboard, add a webhook
+  <code>https://your-static-name.ngrok-free.app/webhook</code>, subscribe to
+  <code>BILLING.SUBSCRIPTION.*</code> and <code>PAYMENT.SALE.COMPLETED</code>,
+  and put the resulting webhook ID into <code>WEBHOOK_ID</code> in <code>.env</code>.</p>
+
+  <h3>6. Launch</h3>
+  <pre><code># Docker (recommended):
+docker compose up -d --build
+
+# Local Python (venv activated):
+python app.py</code></pre>
+  <p>App runs at <a href="http://localhost:5000">http://localhost:5000</a>.</p>
+
+  <h3>7. Test the flow</h3>
+  <p>Open <a href="http://localhost:5000">http://localhost:5000</a>, register a user,
+  subscribe to a tier, approve in the PayPal sandbox, then inspect
+  <a href="http://localhost:5000/events">/events</a>.</p>
+</section>
+
+<section id="included">
+  <h2>What is included</h2>
+  <ul>
+    <li>Flask app: register, login, dashboard, gated premium page</li>
+    <li>PayPal Server SDK subscription creation and cancellation</li>
+    <li>Webhook handler with cryptographic self-verification (CRC32 + RSA)</li>
+    <li>SQLite in WAL mode with idempotent event logging</li>
+    <li>Docker + docker-compose; Proxmox LXC guidance in <code>install.py</code></li>
+    <li>Audited fixes vs. the NeuralNine tutorial: correct import paths,
+        OAuth parameter names, raw-body webhook verification</li>
+  </ul>
+</section>
+
+<section id="troubleshooting">
+  <h2>Troubleshooting</h2>
+  <table>
+    <tr><th>Symptom</th><th>Fix</th></tr>
+    <tr><td><code>ModuleNotFoundError: paypal_server_sdk</code></td>
+        <td>The package is <code>paypalserversdk</code> (no underscores). The client class is <code>PaypalServersdkClient</code>.</td></tr>
+    <tr><td><code>ModuleNotFoundError: requests</code></td>
+        <td>Run step 2 above (venv + pip install). Then re-run <code>python setup_plans.py</code>.</td></tr>
+    <tr><td>401 on every API call</td>
+        <td>Use <code>o_auth_client_id</code> / <code>o_auth_client_secret</code>, not <code>oath_*</code>.</td></tr>
+    <tr><td>Webhook 400 Invalid signature</td>
+        <td>Read <code>request.get_data()</code> first; verify raw bytes with CRC32 + RSA. Do not re-serialize parsed JSON.</td></tr>
+    <tr><td><code>database is locked</code></td>
+        <td>WAL mode is enabled. Keep <code>timeout=15</code> on connections.</td></tr>
+    <tr><td><code>is a directory</code> (Docker)</td>
+        <td>Run <code>touch saas_shop.db</code> before <code>docker compose up</code>.</td></tr>
+    <tr><td><code>setup_plans.py</code> 401/403</td>
+        <td>Enable Catalog + Subscriptions scopes for the PayPal app.</td></tr>
+  </table>
+</section>
+
+<section id="readme">
+  <h2>README</h2>
+  <p>
+    <a href="https://github.com/swipswaps/paypal-saas-mvp/blob/main/README.txt">View on GitHub</a> &middot;
+    <a href="https://raw.githubusercontent.com/swipswaps/paypal-saas-mvp/main/README.txt">Raw on GitHub</a> &middot;
+    <a href="README.txt">Serve from this Pages site</a>
+  </p>
+  <details>
+    <summary>Show README.txt inline</summary>
+    <iframe src="README.txt" title="README.txt"></iframe>
+  </details>
+</section>
+
+<section id="credit">
+  <h2>Credits</h2>
+  <p>Architecture and original tutorial concept: <strong>NeuralNine</strong>,
+  <em>&ldquo;PayPal Python Crash Course — Integrate Payments Easily&rdquo;</em>,
+  <a href="https://youtu.be/zSExhXEfhJo">https://youtu.be/zSExhXEfhJo</a>.
+  This repo applies audits, fixes the tutorial&rsquo;s blocking errors
+  (import paths, OAuth parameter typos, raw-body webhook verification),
+  and adds Docker / Proxmox deployment and this static documentation page.</p>
+</section>
+
+</main>
+
+<footer>
+  <p>Source: <a href="https://github.com/swipswaps/paypal-saas-mvp">github.com/swipswaps/paypal-saas-mvp</a></p>
+</footer>
+
+</body>
+</html>

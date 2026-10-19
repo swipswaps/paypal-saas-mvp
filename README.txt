@@ -2,16 +2,49 @@
 PayPal Python SaaS Subscription MVP — Audited, Idempotent Edition
 ================================================================
 CREDITS: NeuralNine, "PayPal Python Crash Course" — https://youtu.be/zSExhXEfhJo
+Repo: https://github.com/swipswaps/paypal-saas-mvp
+Pages: https://swipswaps.github.io/paypal-saas-mvp/
 
-STEP-BY-STEP
-1. Fill .env: PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET, SECRET_KEY, BASE_URL.
-   Enable Catalog + Subscriptions at https://developer.paypal.com/dashboard/applications
-2. python setup_plans.py — copy PLAN_ID_BASIC / PLAN_ID_PRO into .env.
-3. ngrok static domain: https://dashboard.ngrok.com/cloud-edge/domains
-   ngrok http --domain=your-static-name.ngrok-free.app 5000
-   Add webhook URL .../webhook in the PayPal dashboard; copy WEBHOOK_ID into .env.
-4. docker compose up --build -d   (or python app.py)
-5. Open http://localhost:5000, register, subscribe, check /events.
+QUICK START
+-----------
+1. Clone
+     git clone https://github.com/swipswaps/paypal-saas-mvp.git
+     cd paypal-saas-mvp
+
+2. Install Python dependencies (skip if using Docker only)
+     python3 -m venv .venv
+     . .venv/bin/activate
+     pip install flask paypal-server-sdk python-dotenv requests Werkzeug cryptography
+   Skipping this step makes `python setup_plans.py` fail with
+   ModuleNotFoundError: requests (or a broken urllib3 import).
+
+3. Configure environment
+     cp .env.example .env
+     Edit .env:
+       PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET  from https://developer.paypal.com/dashboard/applications
+       SECRET_KEY                              a long random string
+       BASE_URL                                your ngrok static HTTPS URL (step 5)
+     Enable "Catalog" and "Subscriptions" scopes on the PayPal app.
+
+4. Register subscription plans
+     python setup_plans.py
+     Copy the printed PLAN_ID_BASIC / PLAN_ID_PRO into .env.
+
+5. Expose webhooks with ngrok
+     Claim a free static domain at https://dashboard.ngrok.com/cloud-edge/domains
+     ngrok http --domain=your-static-name.ngrok-free.app 5000
+     Add webhook URL https://your-static-name.ngrok-free.app/webhook in the
+     PayPal dashboard; subscribe to BILLING.SUBSCRIPTION.* and
+     PAYMENT.SALE.COMPLETED; copy WEBHOOK_ID into .env.
+
+6. Launch
+     Docker:  docker compose up -d --build
+     Local:   python app.py
+     App runs at http://localhost:5000
+
+7. Test
+     Open http://localhost:5000, register, subscribe, approve in the
+     PayPal sandbox, inspect http://localhost:5000/events.
 
 IDEMPOTENCY
 - Managed files overwritten each run.
@@ -20,12 +53,14 @@ IDEMPOTENCY
 - .git, origin, GitHub repo, Pages config detected and reused.
 
 TROUBLESHOOTING
+---------------
 - ModuleNotFoundError: paypal_server_sdk -> package is `paypalserversdk`, class `PaypalServersdkClient`
-- 401 on every API call -> use `o_auth_client_id`/`o_auth_client_secret`, not `oath_*`
+- ModuleNotFoundError: requests -> run step 2 above (venv + pip install), then re-run setup_plans.py
+- 401 on every API call -> use `o_auth_client_id` / `o_auth_client_secret`, not `oath_*`
 - Webhook 400 Invalid signature -> read request.get_data() first; verify CRC32 + RSA on raw bytes
-- database is locked -> WAL mode enabled; keep timeout=15
+- database is locked -> WAL mode is enabled; keep timeout=15
 - `is a directory` on Docker -> touch saas_shop.db (script does this)
-- GitHub Pages 404 -> enable Pages from /docs
+- GitHub Pages 404 -> enable Pages from /docs on the main branch
 - gh api Pages 422 -> use -F 'source[branch]=main' -F 'source[path]=/docs'
 - gh exits 0 on 404 -> parse stderr for '404'
 - setup_plans.py 401/403 -> enable Catalog + Subscriptions scopes
