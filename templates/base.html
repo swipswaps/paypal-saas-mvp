@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>PayPal SaaS MVP</title>
+<title>{{ BRAND_NAME }}</title>
 <style>
   body{font-family:system-ui,sans-serif;margin:0;background:#0f172a;color:#e2e8f0}
   header{background:#1e293b;padding:1rem 2rem;display:flex;justify-content:space-between;align-items:center}
@@ -15,7 +15,7 @@
   th,td{border-bottom:1px solid #334155;padding:.5rem;text-align:left;vertical-align:top}
   pre{white-space:pre-wrap;word-break:break-all;font-size:.75rem}
 </style></head>
-<body><header><strong>PayPal SaaS MVP</strong><nav>
+<body><header><strong>{{ BRAND_NAME }}</strong><nav>
   <a href="{{ url_for('index') }}">Home</a>
   {% if user %}<a href="{{ url_for('dashboard') }}">Dashboard</a><a href="{{ url_for('logout') }}">Logout</a>
   {% else %}<a href="{{ url_for('login') }}">Login</a><a href="{{ url_for('register') }}">Register</a>{% endif %}

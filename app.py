@@ -23,6 +23,8 @@ CLIENT_SECRET = os.getenv("PAYPAL_CLIENT_SECRET")
 WEBHOOK_ID    = os.getenv("WEBHOOK_ID")
 BASE_URL      = os.getenv("BASE_URL", "http://localhost:5000").rstrip("/")
 API_BASE      = os.getenv("PAYPAL_API_BASE", "https://api-m.sandbox.paypal.com")
+PORT          = int(os.getenv("PORT", "5000"))
+HOST          = os.getenv("HOST", "0.0.0.0")
 
 paypal = PaypalServersdkClient(
     client_credentials_auth_credentials=ClientCredentialsAuthCredentials(
@@ -30,8 +32,17 @@ paypal = PaypalServersdkClient(
     environment=Environment.SANDBOX)
 
 PLANS = {
-    "basic": {"name": "Basic Tier", "price": "9.99",  "plan_id": os.getenv("PLAN_ID_BASIC")},
-    "pro":   {"name": "Pro Tier",   "price": "29.99", "plan_id": os.getenv("PLAN_ID_PRO")}}
+    "basic": {
+        "name": os.getenv("TIER_BASIC_NAME", "Basic Tier"),
+        "price": os.getenv("TIER_BASIC_PRICE", "9.99"),
+        "plan_id": os.getenv("PLAN_ID_BASIC"),
+    },
+    "pro": {
+        "name": os.getenv("TIER_PRO_NAME", "Pro Tier"),
+        "price": os.getenv("TIER_PRO_PRICE", "29.99"),
+        "plan_id": os.getenv("PLAN_ID_PRO"),
+    },
+}
 
 DB_NAME = "saas_shop.db"
 
@@ -59,6 +70,15 @@ def init_db():
             payload TEXT, received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
         conn.commit()
 init_db()
+
+@app.context_processor
+def inject_brand():
+    return {
+        "BRAND_NAME": os.getenv("BRAND_NAME", "Demo SaaS"),
+        "BRAND_TAGLINE": os.getenv("BRAND_TAGLINE",
+            "Sandbox subscription billing with PayPal Server SDK and Flask."),
+        "CURRENCY_SYMBOL": os.getenv("CURRENCY_SYMBOL", "$"),
+    }
 
 def current_user():
     uid = session.get("user_id")
@@ -118,7 +138,7 @@ def subscribe(tier):
     from paypalserversdk.models.create_subscription_request import CreateSubscriptionRequest
     from paypalserversdk.models.subscription_application_context import SubscriptionApplicationContext
     req = CreateSubscriptionRequest(plan_id=plan_id, custom_id=str(user["id"]),
-        application_context=SubscriptionApplicationContext(brand_name="Demo SaaS",
+        application_context=SubscriptionApplicationContext(brand_name=os.getenv("BRAND_NAME", "Demo SaaS"),
             return_url=f"{BASE_URL}/subscription/success", cancel_url=f"{BASE_URL}/dashboard",
             user_action="SUBSCRIBE_NOW"))
     resp = paypal.subscriptions.create_subscription(body=req)
@@ -195,11 +215,12 @@ def view_events():
 
 @app.route("/health")
 def health():
-    resp = jsonify({"status": "healthy"})
+    resp = jsonify({"status": "healthy", "brand": os.getenv("BRAND_NAME", "Demo SaaS")})
     resp.headers["Access-Control-Allow-Origin"] = "https://swipswaps.github.io"
     resp.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
     resp.headers["Vary"] = "Origin"
     return resp
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    print(f"Starting {os.getenv('BRAND_NAME', 'Demo SaaS')} on {HOST}:{PORT}", flush=True)
+    app.run(host=HOST, port=PORT, debug=False)

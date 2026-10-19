@@ -12,7 +12,6 @@
   header h1 { margin:0 0 .35rem; font-size:1.9rem; }
   header p { margin:.25rem 0; color:var(--muted); }
   header .links a { color:var(--accent); margin:0 .4rem; text-decoration:none; }
-  header .links a:hover { text-decoration:underline; }
   main { max-width:860px; margin:0 auto; padding:1.5rem 1.25rem 3rem; }
   section { background:var(--card); border:1px solid #334155; border-radius:.75rem;
             padding:1.25rem 1.4rem; margin-bottom:1rem; }
@@ -26,14 +25,23 @@
   .warn strong { color:var(--warn); }
   .ok  { color:var(--ok); font-weight:600; }
   .bad { color:var(--err); font-weight:600; }
+  .muted { color:var(--muted); }
   table { width:100%; border-collapse:collapse; font-size:.88rem; }
   th, td { text-align:left; padding:.45rem .55rem; border-bottom:1px solid #334155; vertical-align:top; }
   th { color:var(--muted); font-weight:600; }
-  ul { padding-left:1.2rem; margin:.4rem 0; }
   a { color:var(--accent); }
-  iframe { width:100%; height:640px; border:1px solid #334155; border-radius:.5rem; background:#0b1220; }
-  details { margin-top:.75rem; }
-  details summary { cursor:pointer; color:var(--accent); }
+  button, input, textarea, select { font:inherit; }
+  button { background:var(--accent); color:#0f172a; border:0; padding:.45rem .85rem; border-radius:.4rem; cursor:pointer; margin:.2rem .2rem .2rem 0; font-weight:600; }
+  button.sec { background:#334155; color:var(--fg); }
+  input[type=text] { padding:.4rem .55rem; border-radius:.4rem; border:1px solid #475569; background:#0b1220; color:var(--fg); }
+  fieldset { border:1px solid #334155; border-radius:.5rem; padding:.75rem 1rem; margin:0 0 .75rem; }
+  legend { padding:0 .4rem; color:var(--accent); font-size:.9rem; }
+  label { display:block; font-size:.85rem; color:var(--muted); margin:.35rem 0; }
+  label input, label select { display:block; width:100%; margin-top:.2rem; }
+  #probe-table tr.ours td { color:var(--ok); font-weight:600; }
+  #probe-table tr.other td { color:var(--warn); }
+  #probe-table tr.free td { color:var(--muted); }
+  #probe-table tr.unreachable td { color:var(--err); }
   footer { text-align:center; color:var(--muted); font-size:.85rem; padding:1.5rem 1rem 2rem; }
   .badge { display:inline-block; background:#0b1220; border:1px solid #334155;
            border-radius:999px; padding:.1rem .6rem; font-size:.75rem; color:var(--muted); margin:0 .15rem; }
@@ -45,17 +53,15 @@
   <h1>PayPal SaaS Subscription MVP</h1>
   <p>Audited, idempotent edition &middot; Flask + SQLite (WAL) + PayPal Server SDK</p>
   <p class="links">
-    <a href="https://github.com/swipswaps/paypal-saas-mvp">GitHub repo</a> &middot;
-    <a href="https://github.com/swipswaps/paypal-saas-mvp/blob/main/README.txt">README.txt on GitHub</a> &middot;
-    <a href="README.txt">README.txt on this site</a> &middot;
-    <a href="https://youtu.be/zSExhXEfhJo">Original tutorial</a>
+    <a href="https://github.com/swipswaps/paypal-saas-mvp">GitHub</a> &middot;
+    <a href="https://github.com/swipswaps/paypal-saas-mvp/blob/main/README.txt">README.txt</a> &middot;
+    <a href="README.txt">README (this site)</a>
   </p>
   <p>
     <span class="badge">Python 3.10+</span>
     <span class="badge">Flask 3</span>
     <span class="badge">paypalserversdk 2.x</span>
     <span class="badge">Docker</span>
-    <span class="badge">Proxmox LXC</span>
   </p>
 </header>
 
@@ -63,171 +69,181 @@
 
 <section class="warn">
   <strong>GitHub Pages is static-only.</strong>
-  The Flask app, SQLite database, and PayPal webhook listener cannot run on Pages.
-  This site is documentation. Run the app in Docker or a Proxmox LXC container.
+  This page is documentation. The Flask app, SQLite database, and webhook listener run on
+  your machine (Docker or Proxmox LXC). The probe below reaches the backend from your
+  browser over loopback.
 </section>
 
 <section id="local-status">
   <h2>Local backend status</h2>
-  <p id="be-msg">Checking <code>http://localhost:5000/health</code>&hellip;</p>
-  <noscript>JavaScript is required to run this check.</noscript>
-  <p style="font-size:.85rem;color:var(--muted)">
-    This probe is loopback-only. The browser at <code>https://swipswaps.github.io/...</code>
-    sends a CORS request to <code>http://localhost:5000</code>. A green result means the
-    Flask app is running on this machine. If you see red, start it with
-    <code>docker compose up -d --build</code> from the project directory.
-  </p>
+  <div id="probe-status">Probing localhost, 127.0.0.1, and 0.0.0.0 on ports 5000, 5001, 5002, 8000, 8080, 3000&hellip;</div>
+  <table id="probe-table" style="margin-top:.75rem;display:none">
+    <thead><tr><th>Endpoint</th><th>Status</th><th>Detail</th></tr></thead>
+    <tbody></tbody>
+  </table>
+  <div style="margin-top:.75rem">
+    <button id="btn-reprobe">Re-probe now</button>
+    <button id="btn-reset" class="sec">Clear cached endpoint</button>
+    <button id="btn-clear-all" class="sec">Reset everything</button>
+  </div>
+  <div style="margin-top:1rem">
+    <label>Probe a custom endpoint (e.g. http://192.168.1.50:5000)
+      <input type="text" id="custom-url" placeholder="http://localhost:5001">
+    </label>
+    <button id="btn-probe-custom" class="sec">Probe</button>
+    <div id="custom-result" class="muted" style="margin-top:.35rem"></div>
+  </div>
+</section>
+
+<section id="port-conflict" style="display:none">
+  <h2>Port conflict</h2>
+  <p>Port 5000 responded, but it is <strong>not</strong> the PayPal SaaS backend. Some other
+  service is listening. Choose one path below.</p>
+
+  <h3>1. Identify what is on port 5000</h3>
+  <pre><code>lsof -i :5000
+ss -tlnp | grep :5000
+curl -sI http://localhost:5000/ | head -5</code></pre>
+  <p>Or run the bundled helper (from the repo directory):</p>
+  <pre><code>bash fingerprint-port.sh 5000</code></pre>
+
+  <h3>2. Common causes</h3>
+  <ul>
+    <li><strong>macOS AirPlay Receiver</strong> — System Settings &rarr; General &rarr; AirDrop &amp; Handoff &rarr; AirPlay Receiver &rarr; Off</li>
+    <li><strong>Another Flask/Python app</strong> — <code>pkill -f 'python app.py'</code></li>
+    <li><strong>Docker Registry</strong> — <code>docker ps</code> then stop the container</li>
+    <li><strong>Previous PayPal SaaS run</strong> — <code>docker compose down</code></li>
+  </ul>
+
+  <h3>3. Move this app to a different port</h3>
+  <pre><code># Append to .env:
+PORT=5001
+HOST=0.0.0.0
+
+# Restart:
+docker compose up -d --build</code></pre>
+  <p>Then re-probe. The page will find the backend at <code>http://localhost:5001</code>.</p>
+</section>
+
+<section id="config-builder">
+  <h2>White-label &amp; pricing</h2>
+  <p>Fill in your brand, tier names, and prices. The form produces a <code>.env</code>
+  snippet you append to your local project directory, then re-run <code>setup_plans.py</code>.
+  Nothing is sent to a server — everything runs in your browser and stays in localStorage
+  until you copy it out.</p>
+
+  <form id="cfg-form">
+    <fieldset>
+      <legend>Brand</legend>
+      <label>Brand name <input type="text" name="BRAND_NAME" required></label>
+      <label>Tagline <input type="text" name="BRAND_TAGLINE"></label>
+    </fieldset>
+    <fieldset>
+      <legend>Tier 1</legend>
+      <label>Tier name <input type="text" name="TIER_BASIC_NAME"></label>
+      <label>Price (digits.digits, e.g. 9.99) <input type="text" name="TIER_BASIC_PRICE" pattern="[0-9]+\.[0-9]{2}"></label>
+    </fieldset>
+    <fieldset>
+      <legend>Tier 2</legend>
+      <label>Tier name <input type="text" name="TIER_PRO_NAME"></label>
+      <label>Price (digits.digits, e.g. 29.99) <input type="text" name="TIER_PRO_PRICE" pattern="[0-9]+\.[0-9]{2}"></label>
+    </fieldset>
+    <fieldset>
+      <legend>Currency and interval</legend>
+      <label>ISO code <input type="text" name="CURRENCY_CODE" maxlength="3"></label>
+      <label>Symbol <input type="text" name="CURRENCY_SYMBOL" maxlength="3"></label>
+      <label>Interval
+        <select name="BILLING_INTERVAL">
+          <option value="DAY">Daily</option>
+          <option value="WEEK">Weekly</option>
+          <option value="MONTH">Monthly</option>
+          <option value="YEAR">Yearly</option>
+        </select>
+      </label>
+    </fieldset>
+    <button type="submit">Generate .env snippet</button>
+    <button type="button" id="cfg-reset" class="sec">Reset to defaults</button>
+  </form>
+
+  <div id="cfg-output" style="display:none;margin-top:1rem">
+    <h3>Generated .env snippet</h3>
+    <pre><code id="cfg-env"></code></pre>
+    <h3>Next steps</h3>
+    <pre><code id="cfg-next"></code></pre>
+    <button id="cfg-copy">Copy to clipboard</button>
+    <button id="cfg-download" class="sec">Download as file</button>
+  </div>
 </section>
 
 <section id="quickstart">
   <h2>Quick start</h2>
-
   <h3>1. Clone</h3>
   <pre><code>git clone https://github.com/swipswaps/paypal-saas-mvp.git
 cd paypal-saas-mvp</code></pre>
-
   <h3>2. Install Python dependencies</h3>
   <pre><code>python3 -m venv .venv
 . .venv/bin/activate
 pip install flask paypal-server-sdk python-dotenv requests Werkzeug cryptography</code></pre>
-  <p><em>Skip this only if you will use Docker exclusively. This step is what prevents
-  <code>python setup_plans.py</code> from failing with
-  <code>ModuleNotFoundError: requests</code> or a broken <code>urllib3</code> import.</em></p>
-
   <h3>3. Configure environment</h3>
   <pre><code>cp .env.example .env
-# Edit .env and fill in:
-#   PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET  -> https://developer.paypal.com/dashboard/applications
-#   SECRET_KEY                              -> long random string
-#   BASE_URL                                -> your ngrok static HTTPS URL (step 5)
-# Enable "Catalog" and "Subscriptions" scopes on the PayPal app.</code></pre>
-
+# Edit .env: PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET, SECRET_KEY, BASE_URL
+# Optionally set PORT=5001 if 5000 is taken.</code></pre>
   <h3>4. Register subscription plans</h3>
   <pre><code>python setup_plans.py
-# Copy the printed PLAN_ID_BASIC and PLAN_ID_PRO into .env</code></pre>
-
-  <h3>5. Expose webhooks with ngrok</h3>
-  <pre><code># Claim a free static domain at:
-#   https://dashboard.ngrok.com/cloud-edge/domains
-ngrok http --domain=your-static-name.ngrok-free.app 5000</code></pre>
-  <p>Set <code>BASE_URL</code> in <code>.env</code> to that HTTPS URL.
-  In the PayPal Developer Dashboard, add a webhook
-  <code>https://your-static-name.ngrok-free.app/webhook</code>, subscribe to
-  <code>BILLING.SUBSCRIPTION.*</code> and <code>PAYMENT.SALE.COMPLETED</code>,
-  and put the resulting webhook ID into <code>WEBHOOK_ID</code> in <code>.env</code>.</p>
-
-  <h3>6. Launch</h3>
-  <pre><code># Docker (recommended):
-docker compose up -d --build
-
-# Local Python (venv activated):
-python app.py</code></pre>
-  <p>App runs at <a href="http://localhost:5000">http://localhost:5000</a>.</p>
-
-  <h3>7. Test the flow</h3>
-  <p>Open <a href="http://localhost:5000">http://localhost:5000</a>, register a user,
-  subscribe to a tier, approve in the PayPal sandbox, then inspect
-  <a href="http://localhost:5000/events">/events</a>.</p>
+# Copy PLAN_ID_BASIC / PLAN_ID_PRO into .env</code></pre>
+  <h3>5. Start</h3>
+  <pre><code>docker compose up -d --build
+# or: python app.py</code></pre>
+  <p>Open <a href="http://localhost:5000">http://localhost:5000</a> (or whichever PORT you set).</p>
 </section>
 
-<section id="included">
-  <h2>What is included</h2>
-  <ul>
-    <li>Flask app: register, login, dashboard, gated premium page</li>
-    <li>PayPal Server SDK subscription creation and cancellation</li>
-    <li>Webhook handler with cryptographic self-verification (CRC32 + RSA)</li>
-    <li>SQLite in WAL mode with idempotent event logging</li>
-    <li>Docker + docker-compose; Proxmox LXC guidance in <code>install.py</code></li>
-    <li>Audited fixes vs. the NeuralNine tutorial: correct import paths,
-        OAuth parameter names, raw-body webhook verification</li>
-  </ul>
+<section id="pricing">
+  <h2>Where the monthly fees come from</h2>
+  <p>Prices exist in two places: <code>setup_plans.py</code> registers them with PayPal
+  (<code>fixed_price</code>), and <code>app.py</code>'s <code>PLANS</code> dict displays them
+  (now driven by <code>TIER_*_PRICE</code> env vars). PayPal charges the buyer monthly;
+  the app records webhooks. To change prices, use the config builder above, re-run
+  <code>setup_plans.py</code>, copy the new <code>PLAN_ID_*</code>, and rebuild.</p>
+</section>
+
+<section id="account-features">
+  <h2>Account features</h2>
+  <table>
+    <tr><th>Feature</th><th>Status</th></tr>
+    <tr><td>Register / login / logout</td><td>Works; scrypt password hashing; signed session cookie</td></tr>
+    <tr><td>Multi-device sessions</td><td>Works; independent per device</td></tr>
+    <tr><td>Change password / forgot / change email / delete account</td><td><strong>Not implemented</strong> (404)</td></tr>
+    <tr><td>CSRF tokens / login rate limiting</td><td><strong>Not present</strong> — sandbox OK, prod gap</td></tr>
+  </table>
+  <p>Run <code>bash account_audit.sh</code> to verify locally.</p>
 </section>
 
 <section id="troubleshooting">
   <h2>Troubleshooting</h2>
   <table>
     <tr><th>Symptom</th><th>Fix</th></tr>
-    <tr><td><code>ModuleNotFoundError: paypal_server_sdk</code></td>
-        <td>The package is <code>paypalserversdk</code> (no underscores). The client class is <code>PaypalServersdkClient</code>.</td></tr>
-    <tr><td><code>ModuleNotFoundError: requests</code></td>
-        <td>Run step 2 above (venv + pip install). Then re-run <code>python setup_plans.py</code>.</td></tr>
-    <tr><td>401 on every API call</td>
-        <td>Use <code>o_auth_client_id</code> / <code>o_auth_client_secret</code>, not <code>oath_*</code>.</td></tr>
-    <tr><td>Webhook 400 Invalid signature</td>
-        <td>Read <code>request.get_data()</code> first; verify raw bytes with CRC32 + RSA. Do not re-serialize parsed JSON.</td></tr>
-    <tr><td><code>database is locked</code></td>
-        <td>WAL mode is enabled. Keep <code>timeout=15</code> on connections.</td></tr>
-    <tr><td><code>is a directory</code> (Docker)</td>
-        <td>Run <code>touch saas_shop.db</code> before <code>docker compose up</code>.</td></tr>
-    <tr><td><code>setup_plans.py</code> 401/403</td>
-        <td>Enable Catalog + Subscriptions scopes for the PayPal app.</td></tr>
+    <tr><td>Port 5000 in use (not our app)</td><td>Click "Re-probe"; run <code>bash fingerprint-port.sh 5000</code>; or set <code>PORT=5001</code> in <code>.env</code></td></tr>
+    <tr><td>Probe reports "CORS blocked"</td><td>A different service is on that port. Use the Port conflict panel.</td></tr>
+    <tr><td><code>ModuleNotFoundError: paypal_server_sdk</code></td><td>Package is <code>paypalserversdk</code>; class is <code>PaypalServersdkClient</code></td></tr>
+    <tr><td><code>ModuleNotFoundError: requests</code></td><td>Run step 2 (venv + pip install), then re-run <code>setup_plans.py</code></td></tr>
+    <tr><td>401 on every API call</td><td>Use <code>o_auth_client_id</code> / <code>o_auth_client_secret</code></td></tr>
+    <tr><td>Webhook 400 Invalid signature</td><td>Read <code>request.get_data()</code> first; verify raw bytes</td></tr>
+    <tr><td><code>database is locked</code></td><td>WAL is enabled; keep <code>timeout=15</code></td></tr>
+    <tr><td><code>is a directory</code> (Docker)</td><td><code>touch saas_shop.db</code> before <code>docker compose up</code></td></tr>
   </table>
 </section>
 
 <section id="readme">
   <h2>README</h2>
-  <p>
-    <a href="https://github.com/swipswaps/paypal-saas-mvp/blob/main/README.txt">View on GitHub</a> &middot;
-    <a href="https://raw.githubusercontent.com/swipswaps/paypal-saas-mvp/main/README.txt">Raw on GitHub</a> &middot;
-    <a href="README.txt">Serve from this Pages site</a>
-  </p>
-  <details>
-    <summary>Show README.txt inline</summary>
-    <iframe src="README.txt" title="README.txt"></iframe>
-  </details>
+  <p><a href="https://github.com/swipswaps/paypal-saas-mvp/blob/main/README.txt">View on GitHub</a>
+  &middot; <a href="README.txt">Serve from this site</a></p>
 </section>
 
 <section id="credit">
   <h2>Credits</h2>
-  <p>Architecture and original tutorial concept: <strong>NeuralNine</strong>,
-  <em>&ldquo;PayPal Python Crash Course — Integrate Payments Easily&rdquo;</em>,
-  <a href="https://youtu.be/zSExhXEfhJo">https://youtu.be/zSExhXEfhJo</a>.
-  This repo applies audits, fixes the tutorial&rsquo;s blocking errors
-  (import paths, OAuth parameter typos, raw-body webhook verification),
-  and adds Docker / Proxmox deployment and this static documentation page.</p>
-</section>
-
-
-<section id="pricing">
-  <h2>Where do the monthly fees come from?</h2>
-  <p>The <strong>$9.99 Basic</strong> and <strong>$29.99 Pro</strong> prices exist in two places:</p>
-  <ul>
-    <li><code>setup_plans.py</code> &mdash; registers the plan with PayPal via
-        <code>POST /v1/billing/plans</code>. The <code>fixed_price</code> value
-        is the amount PayPal actually charges each month.</li>
-    <li><code>app.py</code> &mdash; the <code>PLANS</code> dict uses the same numbers
-        for display only. It does not charge anyone.</li>
-  </ul>
-  <p>Actual billing is executed by <strong>PayPal</strong>, not this app.
-  Each plan was created with <code>interval_unit: MONTH</code>,
-  <code>interval_count: 1</code>, <code>total_cycles: 0</code> (renews indefinitely).
-  Each month PayPal charges the buyer; the app receives a
-  <code>PAYMENT.SALE.COMPLETED</code> webhook and flips
-  <code>subscription_status</code> to <code>active</code>. The Flask app never
-  touches money and never computes a price.</p>
-  <p>To change prices: edit <code>setup_plans.py</code>, run it to register the
-  new plans, copy the new <code>PLAN_ID_*</code> into <code>.env</code>, update
-  the <code>PLANS</code> dict in <code>app.py</code>, and rebuild. Existing
-  subscribers stay on their original plan until they cancel and resubscribe.</p>
-</section>
-
-<section id="account-features">
-  <h2>Account features &mdash; what works, what does not</h2>
-  <table>
-    <tr><th>Feature</th><th>Status</th></tr>
-    <tr><td>Register with email + password</td><td>Works (password is hashed, not stored plaintext)</td></tr>
-    <tr><td>Login / logout</td><td>Works (client-side signed session cookie)</td></tr>
-    <tr><td>Multi-device sessions</td><td>Works (each login is independent; logout of one device does not affect others)</td></tr>
-    <tr><td>Session token in HTML</td><td>Not present</td></tr>
-    <tr><td>Change password</td><td><strong>Not implemented</strong> &mdash; <code>POST /change-password</code> returns 404</td></tr>
-    <tr><td>Forgot password / reset</td><td><strong>Not implemented</strong> &mdash; <code>GET /forgot-password</code> returns 404</td></tr>
-    <tr><td>Change email</td><td><strong>Not implemented</strong> &mdash; <code>POST /change-email</code> returns 404</td></tr>
-    <tr><td>Delete account</td><td><strong>Not implemented</strong> &mdash; <code>POST /delete-account</code> returns 404</td></tr>
-    <tr><td>CSRF tokens on forms</td><td><strong>Not present</strong> &mdash; sandbox-OK, production risk</td></tr>
-    <tr><td>Login rate limiting / lockout</td><td><strong>Not present</strong></td></tr>
-  </table>
-  <p>Run <code>bash account_audit.sh</code> (in the repo root) to verify these
-  claims against your own running instance.</p>
+  <p>Architecture and original tutorial: <strong>NeuralNine</strong>,
+  <em>&ldquo;PayPal Python Crash Course&rdquo;</em>,
+  <a href="https://youtu.be/zSExhXEfhJo">https://youtu.be/zSExhXEfhJo</a>.</p>
 </section>
 
 </main>
@@ -236,23 +252,67 @@ python app.py</code></pre>
   <p>Source: <a href="https://github.com/swipswaps/paypal-saas-mvp">github.com/swipswaps/paypal-saas-mvp</a></p>
 </footer>
 
+<script src="probe.js"></script>
+<script src="config-builder.js"></script>
 <script>
 (function () {
-  var msg = document.getElementById('be-msg');
-  if (!msg) return;
-  var ctrl = new AbortController();
-  var timer = setTimeout(function(){ ctrl.abort(); }, 2500);
-  fetch('http://localhost:5000/health', { signal: ctrl.signal, mode: 'cors' })
-    .then(function (r) { clearTimeout(timer); if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-    .then(function (j) {
-      msg.innerHTML = '<span class="ok">Local backend detected</span> — ' +
-        '<code>' + j.status + '</code>. Open <a href="http://localhost:5000/">http://localhost:5000/</a>.';
-    })
-    .catch(function (e) {
-      clearTimeout(timer);
-      msg.innerHTML = '<span class="bad">No local backend detected</span> (' + e.message + '). ' +
-        'Start it: <code>docker compose up -d --build</code> from the project directory, then reload this page.';
+  var statusEl = document.getElementById('probe-status');
+  var tableEl  = document.getElementById('probe-table');
+  var tbody    = tableEl.querySelector('tbody');
+  var conflict = document.getElementById('port-conflict');
+
+  function render(r) {
+    var tr = document.createElement('tr');
+    tr.className = r.status;
+    var detail = r.detail || (r.status === 'ours' ? ('status=' + (r.payload.status||'') + ', brand=' + (r.payload.brand||'')) : '—');
+    tr.innerHTML = '<td>' + r.host + ':' + r.port + '</td><td>' + r.status + '</td><td>' + detail + '</td>';
+    tbody.appendChild(tr);
+  }
+
+  function run() {
+    tbody.innerHTML = '';
+    statusEl.textContent = 'Probing…';
+    tableEl.style.display = 'table';
+    conflict.style.display = 'none';
+    window.PPSaaSProbe.probeAll(render).then(function (results) {
+      var ours = results.filter(function (r) { return r.status === 'ours'; });
+      if (ours.length > 0) {
+        var first = ours[0];
+        statusEl.innerHTML = '<span class="ok">Backend detected</span> at <a href="' + first.base + '/">' + first.base + '</a>';
+      } else {
+        var conflictHit = results.filter(function (r) { return r.port === 5000 && r.status === 'other'; }).length > 0;
+        statusEl.innerHTML = '<span class="bad">No backend detected</span>. Start it with <code>docker compose up -d --build</code>.';
+        if (conflictHit) conflict.style.display = 'block';
+      }
     });
+  }
+
+  document.getElementById('btn-reprobe').addEventListener('click', run);
+  document.getElementById('btn-reset').addEventListener('click', function () {
+    window.PPSaaSProbe.clearLastGood();
+    statusEl.textContent = 'Cleared cached endpoint. Re-probing…';
+    run();
+  });
+  document.getElementById('btn-clear-all').addEventListener('click', function () {
+    try { localStorage.clear(); } catch (e) {}
+    statusEl.textContent = 'Cleared all local state. Reload to reset forms.';
+  });
+  document.getElementById('btn-probe-custom').addEventListener('click', function () {
+    var url = document.getElementById('custom-url').value.trim().replace(/\/+$/, '');
+    var res = document.getElementById('custom-result');
+    if (!url) { res.textContent = 'Enter a URL first.'; return; }
+    res.textContent = 'Probing ' + url + '/health …';
+    var c = new AbortController(); var t = setTimeout(function(){c.abort();}, 2500);
+    fetch(url + '/health', { signal: c.signal, mode: 'cors' })
+      .then(function (r) { clearTimeout(t); if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function (j) {
+        if (j.status === 'healthy') res.innerHTML = '<span class="ok">Reachable</span> — brand=' + (j.brand || '?');
+        else res.innerHTML = '<span class="bad">Reachable but not our app</span>';
+      })
+      .catch(function (e) { clearTimeout(t); res.innerHTML = '<span class="bad">Unreachable</span> (' + e.message + ')'; });
+  });
+
+  run();
 })();
 </script>
 

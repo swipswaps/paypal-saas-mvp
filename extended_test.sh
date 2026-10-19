@@ -34,7 +34,12 @@ fi
 
 # ---- public pages ----
 CODE=$(curl -s -o "$BODY" -w '%{http_code}' "$BASE/");           check "GET /" "200" "$CODE"
-gcheck "/ contains title" "Demo SaaS" "$BODY"
+if [ -f .env ] && grep -qE "^BRAND_NAME=" .env; then
+  BRAND=$(grep -E "^BRAND_NAME=" .env | head -1 | cut -d= -f2-)
+  gcheck "/ contains brand ($BRAND)" "$BRAND" "$BODY"
+else
+  gcheck "/ contains default brand" "Demo SaaS" "$BODY"
+fi
 CODE=$(curl -s -o "$BODY" -w '%{http_code}' "$BASE/login");      check "GET /login" "200" "$CODE"
 CODE=$(curl -s -o "$BODY" -w '%{http_code}' "$BASE/register");   check "GET /register" "200" "$CODE"
 CODE=$(curl -s -o "$BODY" -w '%{http_code}' "$BASE/events");     check "GET /events" "200" "$CODE"
