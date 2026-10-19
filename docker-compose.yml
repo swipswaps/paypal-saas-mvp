@@ -7,5 +7,9 @@ services:
     environment:
       - PORT=${PORT:-5000}
       - HOST=0.0.0.0
-    volumes: ["./saas_shop.db:/app/saas_shop.db"]
+      - ALLOW_SETUP=1
+    volumes:
+      - ./saas_shop.db:/app/saas_shop.db
+      - ./config:/app/config
+      - ./static:/app/static
     restart: unless-stopped

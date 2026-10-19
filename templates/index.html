@@ -1,12 +1,24 @@
 {% extends "base.html" %}{% block content %}
-<div class="card"><h1>{{ BRAND_NAME }}</h1>
-<p>{{ BRAND_TAGLINE }}</p>
-<p><a class="btn" href="{{ url_for('register') }}">Create an account</a>
-<a class="btn secondary" href="{{ url_for('login') }}">Log in</a></p></div>
+<div class="card">
+  {% if BRAND_HERO_VIDEO %}
+    <video class="hero-media" controls src="{{ url_for('static', filename=BRAND_HERO_VIDEO) }}"></video>
+  {% elif BRAND_HERO_IMAGE %}
+    <img class="hero-media" src="{{ url_for('static', filename=BRAND_HERO_IMAGE) }}" alt="">
+  {% endif %}
+  <h1>{{ BRAND_NAME }}</h1>
+  <p>{{ BRAND_TAGLINE }}</p>
+  <p><a class="btn" href="{{ url_for('register') }}">Create an account</a>
+     <a class="btn secondary" href="{{ url_for('login') }}">Log in</a></p>
+</div>
 <div class="card"><h2>Plans</h2><ul>
 {% for key, p in plans.items() %}<li><strong>{{ p.name }}</strong> — {{ CURRENCY_SYMBOL }}{{ p.price }}/month</li>{% endfor %}
 </ul></div>
+{% if BRAND_DEMO_CAST %}
+<div class="card"><h2>Demo</h2>
+  <p class="muted">Recorded with asciinema. <a href="{{ url_for('static', filename=BRAND_DEMO_CAST) }}">Download .cast</a></p>
+</div>
+{% endif %}
 <div class="card" id="docker-status"><h3>Docker detection</h3>
 <p id="docker-msg">Checking <code>/health</code>…</p></div>
-<script>fetch('/health').then(r=>r.ok?r.json():Promise.reject()).then(j=>{document.getElementById('docker-msg').textContent='Docker/container backend detected — '+j.status+'.';}).catch(()=>{document.getElementById('docker-msg').innerHTML='No container detected. Run <code>docker compose up --build -d</code> or <code>python app.py</code>.';});</script>
+<script>fetch('/health').then(r=>r.ok?r.json():Promise.reject()).then(j=>{document.getElementById('docker-msg').innerHTML='Docker/container backend detected — <a href="/setup">open /setup</a> to configure.';}).catch(()=>{document.getElementById('docker-msg').innerHTML='No container detected. Run <code>docker compose up --build -d</code> or <code>python app.py</code>.';});</script>
 {% endblock %}

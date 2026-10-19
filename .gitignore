@@ -5,3 +5,7 @@
 .venv/
 __pycache__/
 *.pyc
+.git.bak/
+config/brand.json
+static/brand/*
+!static/brand/.gitkeep

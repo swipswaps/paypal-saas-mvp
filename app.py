@@ -1,6 +1,8 @@
 import os, json, sqlite3, zlib, base64
-from flask import Flask, g, render_template, redirect, request, session, url_for, jsonify
+from flask import (Flask, g, render_template, redirect, request, session,
+                   url_for, jsonify, abort)
 from werkzeug.security import check_password_hash, generate_password_hash
+from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
 import requests
 from cryptography.hazmat.primitives import hashes, serialization
@@ -14,7 +16,7 @@ load_dotenv()
 app = Flask(__name__)
 _secret = os.getenv("SECRET_KEY", "")
 if not _secret or _secret == "replace-with-a-long-random-string":
-    print("WARNING: SECRET_KEY is not set or is the placeholder value.", flush=True)
+    print("WARNING: SECRET_KEY not set or placeholder; using ephemeral.", flush=True)
     _secret = os.urandom(32).hex()
 app.secret_key = _secret
 
@@ -31,20 +33,61 @@ paypal = PaypalServersdkClient(
         o_auth_client_id=CLIENT_ID, o_auth_client_secret=CLIENT_SECRET),
     environment=Environment.SANDBOX)
 
-PLANS = {
-    "basic": {
-        "name": os.getenv("TIER_BASIC_NAME", "Basic Tier"),
-        "price": os.getenv("TIER_BASIC_PRICE", "9.99"),
-        "plan_id": os.getenv("PLAN_ID_BASIC"),
-    },
-    "pro": {
-        "name": os.getenv("TIER_PRO_NAME", "Pro Tier"),
-        "price": os.getenv("TIER_PRO_PRICE", "29.99"),
-        "plan_id": os.getenv("PLAN_ID_PRO"),
-    },
-}
-
 DB_NAME = "saas_shop.db"
+BRAND_JSON = os.path.join("config", "brand.json")
+_brand_cache = {"mtime": 0, "data": {}}
+
+def load_brand():
+    try:
+        mt = os.path.getmtime(BRAND_JSON)
+    except OSError:
+        return {}
+    if mt != _brand_cache["mtime"]:
+        try:
+            with open(BRAND_JSON) as f:
+                _brand_cache["data"] = json.load(f)
+            _brand_cache["mtime"] = mt
+        except Exception as e:
+            print(f"WARNING: could not parse {BRAND_JSON}: {e}", flush=True)
+            return {}
+    return _brand_cache["data"]
+
+def save_brand(cfg):
+    os.makedirs(os.path.dirname(BRAND_JSON), exist_ok=True)
+    tmp = BRAND_JSON + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(cfg, f, indent=2, sort_keys=True)
+    os.replace(tmp, BRAND_JSON)
+    _brand_cache["mtime"] = 0
+
+def get_plans():
+    cfg = load_brand()
+    return {
+        "basic": {
+            "name": cfg.get("tier_basic_name") or os.getenv("TIER_BASIC_NAME", "Basic Tier"),
+            "price": cfg.get("tier_basic_price") or os.getenv("TIER_BASIC_PRICE", "9.99"),
+            "plan_id": cfg.get("plan_id_basic") or os.getenv("PLAN_ID_BASIC"),
+        },
+        "pro": {
+            "name": cfg.get("tier_pro_name") or os.getenv("TIER_PRO_NAME", "Pro Tier"),
+            "price": cfg.get("tier_pro_price") or os.getenv("TIER_PRO_PRICE", "29.99"),
+            "plan_id": cfg.get("plan_id_pro") or os.getenv("PLAN_ID_PRO"),
+        },
+    }
+
+@app.context_processor
+def inject_brand():
+    cfg = load_brand()
+    return {
+        "BRAND_NAME": cfg.get("brand_name") or os.getenv("BRAND_NAME", "Demo SaaS"),
+        "BRAND_TAGLINE": cfg.get("brand_tagline") or os.getenv("BRAND_TAGLINE",
+            "Sandbox subscription billing with PayPal Server SDK and Flask."),
+        "CURRENCY_SYMBOL": cfg.get("currency_symbol") or os.getenv("CURRENCY_SYMBOL", "$"),
+        "BRAND_LOGO": cfg.get("brand_logo"),
+        "BRAND_HERO_IMAGE": cfg.get("hero_image"),
+        "BRAND_HERO_VIDEO": cfg.get("hero_video"),
+        "BRAND_DEMO_CAST": cfg.get("demo_cast"),
+    }
 
 def get_db():
     if "db" not in g:
@@ -71,23 +114,17 @@ def init_db():
         conn.commit()
 init_db()
 
-@app.context_processor
-def inject_brand():
-    return {
-        "BRAND_NAME": os.getenv("BRAND_NAME", "Demo SaaS"),
-        "BRAND_TAGLINE": os.getenv("BRAND_TAGLINE",
-            "Sandbox subscription billing with PayPal Server SDK and Flask."),
-        "CURRENCY_SYMBOL": os.getenv("CURRENCY_SYMBOL", "$"),
-    }
-
 def current_user():
     uid = session.get("user_id")
     if not uid: return None
     return get_db().execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()
 
+# -------------------------------------------------------------------
+# auth + dashboard (unchanged behavior, plans loaded dynamically)
+# -------------------------------------------------------------------
 @app.route("/")
 def index():
-    return render_template("index.html", user=current_user(), plans=PLANS)
+    return render_template("index.html", user=current_user(), plans=get_plans())
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
@@ -119,7 +156,7 @@ def logout():
 def dashboard():
     user = current_user()
     if not user: return redirect(url_for("login"))
-    return render_template("dashboard.html", user=user, plans=PLANS)
+    return render_template("dashboard.html", user=user, plans=get_plans())
 
 @app.route("/premium")
 def premium():
@@ -131,16 +168,18 @@ def premium():
 @app.route("/subscribe/<tier>")
 def subscribe(tier):
     user = current_user()
-    if not user or tier not in PLANS: return redirect(url_for("login"))
-    plan_id = PLANS[tier]["plan_id"]
+    if not user or tier not in ("basic", "pro"): return redirect(url_for("login"))
+    plans = get_plans()
+    plan_id = plans[tier]["plan_id"]
     if not plan_id:
-        return "PLAN_ID not configured. Run setup_plans.py and update .env.", 500
+        return "PLAN_ID not configured. Open /setup to register plans.", 500
     from paypalserversdk.models.create_subscription_request import CreateSubscriptionRequest
     from paypalserversdk.models.subscription_application_context import SubscriptionApplicationContext
+    brand = load_brand().get("brand_name") or os.getenv("BRAND_NAME", "Demo SaaS")
     req = CreateSubscriptionRequest(plan_id=plan_id, custom_id=str(user["id"]),
-        application_context=SubscriptionApplicationContext(brand_name=os.getenv("BRAND_NAME", "Demo SaaS"),
-            return_url=f"{BASE_URL}/subscription/success", cancel_url=f"{BASE_URL}/dashboard",
-            user_action="SUBSCRIBE_NOW"))
+        application_context=SubscriptionApplicationContext(brand_name=brand,
+            return_url=f"{BASE_URL}/subscription/success",
+            cancel_url=f"{BASE_URL}/dashboard", user_action="SUBSCRIBE_NOW"))
     resp = paypal.subscriptions.create_subscription(body=req)
     for link in resp.body.links:
         if link.rel == "approve": return redirect(link.href)
@@ -191,7 +230,8 @@ def webhook():
                (etype, sid, raw.decode("utf-8"))); db.commit()
     if etype == "BILLING.SUBSCRIPTION.ACTIVATED":
         plan_id = res.get("plan_id")
-        tier = next((t for t, p in PLANS.items() if p["plan_id"] == plan_id), "free")
+        plans = get_plans()
+        tier = next((t for t, p in plans.items() if p["plan_id"] == plan_id), "free")
         if not uid and sid:
             row = db.execute("SELECT id FROM users WHERE subscription_id=?", (sid,)).fetchone()
             uid = row["id"] if row else None
@@ -215,12 +255,153 @@ def view_events():
 
 @app.route("/health")
 def health():
-    resp = jsonify({"status": "healthy", "brand": os.getenv("BRAND_NAME", "Demo SaaS")})
+    resp = jsonify({"status": "healthy",
+                    "brand": load_brand().get("brand_name") or os.getenv("BRAND_NAME", "Demo SaaS")})
     resp.headers["Access-Control-Allow-Origin"] = "https://swipswaps.github.io"
     resp.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
     resp.headers["Vary"] = "Origin"
     return resp
 
+# -------------------------------------------------------------------
+# /setup — interactive white-label, asset upload, plan registration
+# -------------------------------------------------------------------
+def _guard_setup():
+    if os.getenv("ALLOW_SETUP") == "1":
+        return
+    if request.remote_addr in ("127.0.0.1", "::1"):
+        return
+    abort(403)
+
+SETUP_FIELDS = ("brand_name", "brand_tagline",
+                "tier_basic_name", "tier_basic_price",
+                "tier_pro_name", "tier_pro_price",
+                "currency_code", "currency_symbol", "billing_interval")
+
+SETUP_DEFAULTS = {
+    "brand_name": "Demo SaaS",
+    "brand_tagline": "Sandbox subscription billing with PayPal Server SDK and Flask.",
+    "tier_basic_name": "Basic Tier",
+    "tier_basic_price": "9.99",
+    "tier_pro_name": "Pro Tier",
+    "tier_pro_price": "29.99",
+    "currency_code": "USD",
+    "currency_symbol": "$",
+    "billing_interval": "MONTH",
+}
+
+ASSET_KINDS = {
+    "logo":       {"exts": {"png","jpg","jpeg","svg"}, "key": "brand_logo"},
+    "hero_image": {"exts": {"png","jpg","jpeg","svg"}, "key": "hero_image"},
+    "hero_video": {"exts": {"mp4"},                    "key": "hero_video"},
+    "demo_cast":  {"exts": {"cast"},                   "key": "demo_cast"},
+}
+
+@app.route("/setup")
+def setup_page():
+    _guard_setup()
+    cfg = load_brand()
+    merged = {}
+    for k in SETUP_FIELDS:
+        merged[k] = cfg.get(k) or SETUP_DEFAULTS[k]
+    assets = {kind: cfg.get(meta["key"]) for kind, meta in ASSET_KINDS.items()}
+    return render_template("setup.html", cfg=merged, assets=assets,
+                           plans=get_plans(),
+                           in_docker=os.path.exists("/.dockerenv"),
+                           creds_ok=bool(CLIENT_ID and CLIENT_SECRET
+                                         and CLIENT_ID != "your_sandbox_client_id_here"))
+
+@app.route("/setup/config", methods=["POST"])
+def setup_config():
+    _guard_setup()
+    cfg = load_brand() or {}
+    for k in SETUP_FIELDS:
+        v = (request.form.get(k) or "").strip()
+        if v:
+            cfg[k] = v
+    save_brand(cfg)
+    return jsonify({"ok": True, "applied_at": "next request"})
+
+@app.route("/setup/asset", methods=["POST"])
+def setup_asset():
+    _guard_setup()
+    kind = request.form.get("kind")
+    if kind not in ASSET_KINDS:
+        return jsonify({"error": "invalid kind"}), 400
+    f = request.files.get("file")
+    if not f or not f.filename:
+        return jsonify({"error": "no file"}), 400
+    safe = secure_filename(f.filename)
+    if not safe or "." not in safe:
+        return jsonify({"error": "invalid filename"}), 400
+    ext = safe.rsplit(".", 1)[-1].lower()
+    if ext not in ASSET_KINDS[kind]["exts"]:
+        return jsonify({"error": f"extension .{ext} not allowed for {kind}"}), 400
+    os.makedirs(os.path.join("static", "brand"), exist_ok=True)
+    final_name = f"{kind}.{ext}"
+    dest = os.path.join("static", "brand", final_name)
+    f.save(dest)
+    cfg = load_brand() or {}
+    cfg[ASSET_KINDS[kind]["key"]] = f"brand/{final_name}"
+    save_brand(cfg)
+    return jsonify({"ok": True, "url": url_for("static", filename=cfg[ASSET_KINDS[kind]["key"]])})
+
+@app.route("/setup/register-plans", methods=["POST"])
+def setup_register_plans():
+    _guard_setup()
+    if not CLIENT_ID or not CLIENT_SECRET or CLIENT_ID == "your_sandbox_client_id_here":
+        return jsonify({"error": "PayPal credentials not set in .env"}), 400
+    cfg = load_brand() or {}
+    brand = cfg.get("brand_name") or SETUP_DEFAULTS["brand_name"]
+    tagline = cfg.get("brand_tagline") or SETUP_DEFAULTS["brand_tagline"]
+    currency = cfg.get("currency_code") or SETUP_DEFAULTS["currency_code"]
+    interval = cfg.get("billing_interval") or SETUP_DEFAULTS["billing_interval"]
+    basic_name = cfg.get("tier_basic_name") or SETUP_DEFAULTS["tier_basic_name"]
+    basic_price = cfg.get("tier_basic_price") or SETUP_DEFAULTS["tier_basic_price"]
+    pro_name = cfg.get("tier_pro_name") or SETUP_DEFAULTS["tier_pro_name"]
+    pro_price = cfg.get("tier_pro_price") or SETUP_DEFAULTS["tier_pro_price"]
+
+    tok_resp = requests.post(f"{API_BASE}/v1/oauth2/token",
+        auth=(CLIENT_ID, CLIENT_SECRET),
+        data={"grant_type": "client_credentials"}, timeout=15)
+    if tok_resp.status_code != 200:
+        return jsonify({"error": f"PayPal OAuth {tok_resp.status_code}",
+                        "detail": tok_resp.text[:300]}), 502
+    tok = tok_resp.json()["access_token"]
+    headers = {"Authorization": f"Bearer {tok}", "Content-Type": "application/json"}
+
+    prod_resp = requests.post(f"{API_BASE}/v1/catalogs/products", headers=headers, json={
+        "name": brand, "description": tagline, "type": "SERVICE", "category": "SOFTWARE"
+    }, timeout=20)
+    if prod_resp.status_code not in (200, 201):
+        return jsonify({"error": f"Product create {prod_resp.status_code}",
+                        "detail": prod_resp.text[:300]}), 502
+    product_id = prod_resp.json()["id"]
+
+    def create_plan(name, price):
+        body = {"product_id": product_id, "name": name,
+                "description": f"{name} {interval.lower()}ly subscription", "status": "ACTIVE",
+                "billing_cycles": [{"frequency": {"interval_unit": interval, "interval_count": 1},
+                    "tenure_type": "REGULAR", "sequence": 1, "total_cycles": 0,
+                    "pricing_scheme": {"fixed_price": {"value": price, "currency_code": currency}}}],
+                "payment_preferences": {"auto_bill_outstanding": True, "payment_failure_threshold": 3}}
+        r = requests.post(f"{API_BASE}/v1/billing/plans", headers=headers, json=body, timeout=20)
+        if r.status_code not in (200, 201):
+            return None, r.status_code, r.text[:300]
+        return r.json()["id"], 200, None
+
+    basic_id, bs, bd = create_plan(basic_name, basic_price)
+    if not basic_id:
+        return jsonify({"error": f"Basic plan {bs}", "detail": bd}), 502
+    pro_id, ps, pd = create_plan(pro_name, pro_price)
+    if not pro_id:
+        return jsonify({"error": f"Pro plan {ps}", "detail": pd}), 502
+
+    cfg["plan_id_basic"] = basic_id
+    cfg["plan_id_pro"] = pro_id
+    save_brand(cfg)
+    return jsonify({"ok": True, "product_id": product_id,
+                    "plan_id_basic": basic_id, "plan_id_pro": pro_id})
+
 if __name__ == "__main__":
-    print(f"Starting {os.getenv('BRAND_NAME', 'Demo SaaS')} on {HOST}:{PORT}", flush=True)
+    print(f"Starting on {HOST}:{PORT}", flush=True)
     app.run(host=HOST, port=PORT, debug=False)

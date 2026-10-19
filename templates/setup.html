@@ -1,0 +1,141 @@
+{% extends "base.html" %}{% block content %}
+<div class="card">
+  <h1>Setup — {{ BRAND_NAME }}</h1>
+  <p class="muted">Changes are written to <code>config/brand.json</code> and <code>static/brand/</code>.
+  Display updates apply on the next page load; subscriptions use the plan IDs PayPal registered.</p>
+  {% if in_docker %}<p class="muted">Running in Docker: <code>config/</code> and <code>static/</code> are bind-mounted to the host.</p>{% endif %}
+  {% if not creds_ok %}<p class="bad">PayPal credentials in .env are placeholders. Plan registration will fail until you fill them in.</p>{% endif %}
+</div>
+
+<div class="card">
+  <h2>Brand &amp; pricing</h2>
+  <form id="cfg-form">
+    <label>Brand name<input name="brand_name" value="{{ cfg.brand_name }}" required></label>
+    <label>Tagline<input name="brand_tagline" value="{{ cfg.brand_tagline }}"></label>
+    <label>Tier 1 name<input name="tier_basic_name" value="{{ cfg.tier_basic_name }}"></label>
+    <label>Tier 1 price (e.g. 9.99)<input name="tier_basic_price" value="{{ cfg.tier_basic_price }}" pattern="[0-9]+\.[0-9]{2}"></label>
+    <label>Tier 2 name<input name="tier_pro_name" value="{{ cfg.tier_pro_name }}"></label>
+    <label>Tier 2 price<input name="tier_pro_price" value="{{ cfg.tier_pro_price }}" pattern="[0-9]+\.[0-9]{2}"></label>
+    <label>Currency ISO code<input name="currency_code" value="{{ cfg.currency_code }}" maxlength="3"></label>
+    <label>Currency symbol<input name="currency_symbol" value="{{ cfg.currency_symbol }}" maxlength="3"></label>
+    <label>Billing interval
+      <select name="billing_interval">
+        {% for i in ['DAY','WEEK','MONTH','YEAR'] %}
+        <option value="{{ i }}" {% if cfg.billing_interval == i %}selected{% endif %}>{{ i }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <button type="submit">Save brand &amp; pricing</button>
+    <span id="cfg-status" class="muted"></span>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Assets</h2>
+  <p class="muted">Upload logo (png/jpg/svg), hero image (png/jpg/svg), hero video (mp4), or demo cast (.cast). Files are saved to <code>static/brand/</code>.</p>
+
+  {% for kind, label, accept in [
+     ('logo','Logo','.png,.jpg,.jpeg,.svg'),
+     ('hero_image','Hero image','.png,.jpg,.jpeg,.svg'),
+     ('hero_video','Hero video','.mp4'),
+     ('demo_cast','Asciinema cast','.cast')
+  ] %}
+  <div style="border-top:1px solid #334155;padding:.75rem 0">
+    <strong>{{ label }}</strong>
+    {% if assets[kind] %}
+      <span class="ok">(current: {{ assets[kind] }})</span>
+      <p><a href="{{ url_for('static', filename=assets[kind]) }}" target="_blank">View / download</a></p>
+    {% endif %}
+    <input type="file" id="file-{{ kind }}" accept="{{ accept }}">
+    <div id="preview-{{ kind }}" style="margin:.5rem 0"></div>
+    <button type="button" onclick="uploadAsset('{{ kind }}')">Upload {{ label }}</button>
+    <span id="status-{{ kind }}" class="muted"></span>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="card">
+  <h2>PayPal plans</h2>
+  <p>Register the current tier names &amp; prices with PayPal and save the returned plan IDs.</p>
+  <p>Current plan IDs:
+    <br>Basic: <code>{{ plans.basic.plan_id or '(none)' }}</code>
+    <br>Pro:   <code>{{ plans.pro.plan_id or '(none)' }}</code>
+  </p>
+  <button type="button" onclick="registerPlans()">Register plans with PayPal</button>
+  <span id="plans-status" class="muted"></span>
+</div>
+
+<script>
+function $(id){return document.getElementById(id);}
+
+document.getElementById('cfg-form').addEventListener('submit', function (e) {
+  e.preventDefault();
+  var fd = new FormData(e.target);
+  $('cfg-status').textContent = 'Saving…';
+  fetch('/setup/config', { method: 'POST', body: fd })
+    .then(function (r) { return r.json(); })
+    .then(function (j) {
+      $('cfg-status').innerHTML = j.ok
+        ? '<span class="ok">Saved.</span> Reload home to see new branding.'
+        : '<span class="bad">' + (j.error || 'error') + '</span>';
+    })
+    .catch(function (e) { $('cfg-status').innerHTML = '<span class="bad">' + e.message + '</span>'; });
+});
+
+['logo','hero_image','hero_video','demo_cast'].forEach(function (kind) {
+  var inp = document.getElementById('file-' + kind);
+  if (!inp) return;
+  inp.addEventListener('change', function () {
+    var f = inp.files && inp.files[0];
+    var pv = document.getElementById('preview-' + kind);
+    pv.innerHTML = '';
+    if (!f) return;
+    var url = URL.createObjectURL(f);
+    if (/image\//.test(f.type)) {
+      var img = document.createElement('img');
+      img.src = url; img.style.maxHeight = '120px'; pv.appendChild(img);
+    } else if (/video\//.test(f.type)) {
+      var v = document.createElement('video');
+      v.src = url; v.controls = true; v.style.maxHeight = '160px'; pv.appendChild(v);
+    } else {
+      pv.innerHTML = '<span class="muted">' + f.name + ' — ' + Math.round(f.size/1024) + ' KB</span>';
+    }
+  });
+});
+
+function uploadAsset(kind) {
+  var inp = document.getElementById('file-' + kind);
+  var status = document.getElementById('status-' + kind);
+  if (!inp || !inp.files[0]) { status.textContent = 'Choose a file first.'; return; }
+  var fd = new FormData();
+  fd.append('kind', kind);
+  fd.append('file', inp.files[0]);
+  status.textContent = 'Uploading…';
+  fetch('/setup/asset', { method: 'POST', body: fd })
+    .then(function (r) { return r.json(); })
+    .then(function (j) {
+      if (j.ok) {
+        status.innerHTML = '<span class="ok">Saved to ' + j.url + '</span>. Reload home to see it.';
+      } else {
+        status.innerHTML = '<span class="bad">' + (j.error || 'error') + '</span>';
+      }
+    })
+    .catch(function (e) { status.innerHTML = '<span class="bad">' + e.message + '</span>'; });
+}
+
+function registerPlans() {
+  var s = document.getElementById('plans-status');
+  s.textContent = 'Calling PayPal…';
+  fetch('/setup/register-plans', { method: 'POST' })
+    .then(function (r) { return r.json(); })
+    .then(function (j) {
+      if (j.ok) {
+        s.innerHTML = '<span class="ok">Done.</span> basic=' + j.plan_id_basic + ' pro=' + j.plan_id_pro;
+      } else {
+        s.innerHTML = '<span class="bad">' + (j.error || 'error') + (j.detail ? ' — ' + j.detail : '') + '</span>';
+      }
+    })
+    .catch(function (e) { s.innerHTML = '<span class="bad">' + e.message + '</span>'; });
+}
+</script>
+{% endblock %}

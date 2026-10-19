@@ -127,7 +127,8 @@ docker compose up -d --build</code></pre>
 
 <section id="config-builder">
   <h2>White-label &amp; pricing</h2>
-  <p>Fill in your brand, tier names, and prices. The form produces a <code>.env</code>
+  <p><strong>Interactive setup runs on the backend, not here.</strong> When the probe above detects your local Flask app, open <a href="http://localhost:5000/setup">http://localhost:5000/setup</a> (or whichever host:port the probe found) to change branding, upload a logo, and register plans with PayPal. The form below produces a static snippet for copy-paste workflows.</p>
+<p>Fill in your brand, tier names, and prices. The form produces a <code>.env</code>
   snippet you append to your local project directory, then re-run <code>setup_plans.py</code>.
   Nothing is sent to a server — everything runs in your browser and stays in localStorage
   until you copy it out.</p>
@@ -278,7 +279,7 @@ pip install flask paypal-server-sdk python-dotenv requests Werkzeug cryptography
       var ours = results.filter(function (r) { return r.status === 'ours'; });
       if (ours.length > 0) {
         var first = ours[0];
-        statusEl.innerHTML = '<span class="ok">Backend detected</span> at <a href="' + first.base + '/">' + first.base + '</a>';
+        statusEl.innerHTML = '<span class="ok">Backend detected</span> at ' + '<a href="' + first.base + '/">' + first.base + '</a> — ' + '<a href="' + first.base + '/setup">open /setup</a>';
       } else {
         var conflictHit = results.filter(function (r) { return r.port === 5000 && r.status === 'other'; }).length > 0;
         statusEl.innerHTML = '<span class="bad">No backend detected</span>. Start it with <code>docker compose up -d --build</code>.';
