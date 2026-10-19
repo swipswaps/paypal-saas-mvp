@@ -1,23 +1,6 @@
-{% extends "base.html" %}
-{% block content %}
-<div class="card">
-  <h2>Webhook events (latest 50)</h2>
-  {% if events %}
-  <table>
-    <thead><tr><th>Time</th><th>Event</th><th>Resource</th><th>Payload</th></tr></thead>
-    <tbody>
-    {% for e in events %}
-      <tr>
-        <td>{{ e.received_at }}</td>
-        <td>{{ e.event_type }}</td>
-        <td>{{ e.resource_id }}</td>
-        <td><pre>{{ e.payload[:500] }}</pre></td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <p>No events received yet.</p>
-  {% endif %}
-</div>
-{% endblock %}
+{% extends "base.html" %}{% block content %}
+<div class="card"><h2>Webhook events (latest 50)</h2>
+{% if events %}<table><thead><tr><th>Time</th><th>Event</th><th>Resource</th><th>Payload</th></tr></thead><tbody>
+{% for e in events %}<tr><td>{{ e.received_at }}</td><td>{{ e.event_type }}</td><td>{{ e.resource_id }}</td>
+<td><pre>{{ e.payload[:500] }}</pre></td></tr>{% endfor %}
+</tbody></table>{% else %}<p>No events received yet.</p>{% endif %}</div>{% endblock %}

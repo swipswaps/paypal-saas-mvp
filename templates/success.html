@@ -1,8 +1,4 @@
-{% extends "base.html" %}
-{% block content %}
-<div class="card">
-  <h2>Subscription submitted</h2>
-  <p>PayPal will activate your subscription via webhook shortly.</p>
-  <a class="btn" href="{{ url_for('dashboard') }}">Go to dashboard</a>
-</div>
-{% endblock %}
+{% extends "base.html" %}{% block content %}
+<div class="card"><h2>Subscription submitted</h2>
+<p>PayPal will activate your subscription via webhook shortly.</p>
+<a class="btn" href="{{ url_for('dashboard') }}">Go to dashboard</a></div>{% endblock %}
