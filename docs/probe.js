@@ -51,11 +51,28 @@
   function getLastGood() { try { return localStorage.getItem(KEY_LASTGOOD); } catch (e) { return null; } }
   function clearLastGood() { try { localStorage.removeItem(KEY_LASTGOOD); } catch (e) {} }
 
-  window.PPSaaSProbe = {
+    // Detect the "localhost free but 127.0.0.1 ours" browser quirk.
+  // Returns null if no quirk, otherwise the working 127.0.0.1 endpoint.
+  function quirkNote(results) {
+    var byPort = {};
+    results.forEach(function (r) { (byPort[r.port] = byPort[r.port] || {})[r.host] = r; });
+    var hits = [];
+    Object.keys(byPort).forEach(function (port) {
+      var group = byPort[port];
+      if (group['localhost'] && group['localhost'].status === 'free' &&
+          group['127.0.0.1'] && group['127.0.0.1'].status === 'ours') {
+        hits.push(group['127.0.0.1'].base);
+      }
+    });
+    return hits.length > 0 ? hits[0] : null;
+  }
+
+window.PPSaaSProbe = {
     probeAll: probeAll,
     getLastGood: getLastGood,
     clearLastGood: clearLastGood,
     HOSTS: HOSTS,
-    PORTS: PORTS
+    PORTS: PORTS,
+    quirkNote: quirkNote
   };
 })();

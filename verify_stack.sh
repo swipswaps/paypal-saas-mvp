@@ -55,5 +55,9 @@ curl -s -o "$BODY" -w 'HTTP %{http_code}\n' "$BASE/setup"
 grep -q 'Setup —' "$BODY" && echo "PASS  /setup renders" || echo "FAIL  /setup missing expected header"
 
 echo ""
+echo "==> Running setup_test.sh:"
+bash setup_test.sh
+
+echo ""
 echo "DONE."
 )

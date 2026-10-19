@@ -279,7 +279,11 @@ pip install flask paypal-server-sdk python-dotenv requests Werkzeug cryptography
       var ours = results.filter(function (r) { return r.status === 'ours'; });
       if (ours.length > 0) {
         var first = ours[0];
-        statusEl.innerHTML = '<span class="ok">Backend detected</span> at ' + '<a href="' + first.base + '/">' + first.base + '</a> — ' + '<a href="' + first.base + '/setup">open /setup</a>';
+        var quirk = window.PPSaaSProbe.quirkNote(results);
+        statusEl.innerHTML = '<span class="ok">Backend detected</span> at '
+            + '<a href="' + first.base + '/">' + first.base + '</a> — '
+            + '<a href="' + first.base + '/setup">open /setup</a>'
+            + (quirk ? ' <span class="muted">(browser blocked <code>http://localhost</code> as mixed content; use the <code>127.0.0.1</code> link above)</span>' : '');
       } else {
         var conflictHit = results.filter(function (r) { return r.port === 5000 && r.status === 'other'; }).length > 0;
         statusEl.innerHTML = '<span class="bad">No backend detected</span>. Start it with <code>docker compose up -d --build</code>.';
@@ -310,7 +314,7 @@ pip install flask paypal-server-sdk python-dotenv requests Werkzeug cryptography
         if (j.status === 'healthy') res.innerHTML = '<span class="ok">Reachable</span> — brand=' + (j.brand || '?');
         else res.innerHTML = '<span class="bad">Reachable but not our app</span>';
       })
-      .catch(function (e) { clearTimeout(t); res.innerHTML = '<span class="bad">Unreachable</span> (' + e.message + ')'; });
+      .catch(function (e) { clearTimeout(t); if (/HTTP \d+/.test(e.message)) { res.innerHTML = '<span class="bad">Reachable but not our backend</span> (' + e.message + ')'; } else { res.innerHTML = '<span class="bad">Unreachable</span> (' + e.message + ')'; } });
   });
 
   run();
