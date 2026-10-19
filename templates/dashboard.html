@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <h2>Dashboard</h2>
+  <p><strong>Email:</strong> {{ user.email }}</p>
+  <p><strong>Tier:</strong> {{ user.tier }}</p>
+  <p><strong>Subscription status:</strong> {{ user.subscription_status or '—' }}</p>
+  {% if user.tier == 'free' %}
+    <p><a class="btn" href="{{ url_for('subscribe', tier='basic') }}">Subscribe Basic — $9.99/mo</a></p>
+    <p><a class="btn" href="{{ url_for('subscribe', tier='pro') }}">Subscribe Pro — $29.99/mo</a></p>
+  {% else %}
+    <p><a class="btn secondary" href="{{ url_for('cancel_subscription') }}">Cancel subscription</a></p>
+    <p><a class="btn" href="{{ url_for('premium') }}">Go to premium content</a></p>
+  {% endif %}
+</div>
+{% endblock %}
