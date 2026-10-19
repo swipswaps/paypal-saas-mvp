@@ -187,6 +187,49 @@ python app.py</code></pre>
   and adds Docker / Proxmox deployment and this static documentation page.</p>
 </section>
 
+
+<section id="pricing">
+  <h2>Where do the monthly fees come from?</h2>
+  <p>The <strong>$9.99 Basic</strong> and <strong>$29.99 Pro</strong> prices exist in two places:</p>
+  <ul>
+    <li><code>setup_plans.py</code> &mdash; registers the plan with PayPal via
+        <code>POST /v1/billing/plans</code>. The <code>fixed_price</code> value
+        is the amount PayPal actually charges each month.</li>
+    <li><code>app.py</code> &mdash; the <code>PLANS</code> dict uses the same numbers
+        for display only. It does not charge anyone.</li>
+  </ul>
+  <p>Actual billing is executed by <strong>PayPal</strong>, not this app.
+  Each plan was created with <code>interval_unit: MONTH</code>,
+  <code>interval_count: 1</code>, <code>total_cycles: 0</code> (renews indefinitely).
+  Each month PayPal charges the buyer; the app receives a
+  <code>PAYMENT.SALE.COMPLETED</code> webhook and flips
+  <code>subscription_status</code> to <code>active</code>. The Flask app never
+  touches money and never computes a price.</p>
+  <p>To change prices: edit <code>setup_plans.py</code>, run it to register the
+  new plans, copy the new <code>PLAN_ID_*</code> into <code>.env</code>, update
+  the <code>PLANS</code> dict in <code>app.py</code>, and rebuild. Existing
+  subscribers stay on their original plan until they cancel and resubscribe.</p>
+</section>
+
+<section id="account-features">
+  <h2>Account features &mdash; what works, what does not</h2>
+  <table>
+    <tr><th>Feature</th><th>Status</th></tr>
+    <tr><td>Register with email + password</td><td>Works (password is hashed, not stored plaintext)</td></tr>
+    <tr><td>Login / logout</td><td>Works (client-side signed session cookie)</td></tr>
+    <tr><td>Multi-device sessions</td><td>Works (each login is independent; logout of one device does not affect others)</td></tr>
+    <tr><td>Session token in HTML</td><td>Not present</td></tr>
+    <tr><td>Change password</td><td><strong>Not implemented</strong> &mdash; <code>POST /change-password</code> returns 404</td></tr>
+    <tr><td>Forgot password / reset</td><td><strong>Not implemented</strong> &mdash; <code>GET /forgot-password</code> returns 404</td></tr>
+    <tr><td>Change email</td><td><strong>Not implemented</strong> &mdash; <code>POST /change-email</code> returns 404</td></tr>
+    <tr><td>Delete account</td><td><strong>Not implemented</strong> &mdash; <code>POST /delete-account</code> returns 404</td></tr>
+    <tr><td>CSRF tokens on forms</td><td><strong>Not present</strong> &mdash; sandbox-OK, production risk</td></tr>
+    <tr><td>Login rate limiting / lockout</td><td><strong>Not present</strong></td></tr>
+  </table>
+  <p>Run <code>bash account_audit.sh</code> (in the repo root) to verify these
+  claims against your own running instance.</p>
+</section>
+
 </main>
 
 <footer>
