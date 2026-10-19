@@ -1,0 +1,14 @@
+[project]
+name = "paypal-python-saas"
+version = "0.2.0"
+description = "PayPal Server SDK SaaS Subscription MVP — audited"
+readme = "README.txt"
+requires-python = ">=3.10"
+dependencies = [
+    "flask>=3.0.0",
+    "paypal-server-sdk>=2.2.0",
+    "python-dotenv>=1.0.0",
+    "requests>=2.31.0",
+    "Werkzeug>=3.0.0",
+    "cryptography>=42.0.0"
+]

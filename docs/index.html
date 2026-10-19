@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PayPal SaaS MVP — Docs</title>
+<style>
+  body{font-family:system-ui,sans-serif;max-width:720px;margin:4rem auto;padding:0 1rem;background:#0f172a;color:#e2e8f0}
+  code{background:#1e293b;padding:.15rem .35rem;border-radius:.3rem}
+  a{color:#38bdf8}
+</style>
+</head>
+<body>
+<h1>PayPal SaaS Subscription MVP</h1>
+<p>This GitHub Pages site is a <strong>static landing page</strong>. The Flask application
+   and webhook listener run in Docker or a Proxmox LXC container; they cannot run on GitHub Pages.</p>
+<h2>Run the app</h2>
+<pre><code>git clone https://github.com/&lt;owner&gt;/paypal-saas-mvp.git
+cd paypal-saas-mvp
+cp .env.example .env
+python setup_plans.py
+docker compose up --build -d</code></pre>
+<p>See the repository <a href="https://github.com/&lt;owner&gt;/paypal-saas-mvp/blob/main/README.txt">README.txt</a> for the full guide.</p>
+<p>Credits: architecture inspired by NeuralNine’s PayPal Python crash course.</p>
+</body>
+</html>
