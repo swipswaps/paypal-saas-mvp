@@ -215,6 +215,69 @@ pip install flask paypal-server-sdk python-dotenv requests Werkzeug cryptography
   <a href="https://youtu.be/zSExhXEfhJo">https://youtu.be/zSExhXEfhJo</a>.</p>
 </section>
 
+
+<section id="setup-walkthrough">
+  <h2>Setup page walkthrough</h2>
+  <p>Open <a href="http://localhost:5000/setup">http://localhost:5000/setup</a> once the
+  container is running. That page is the single place where all local configuration
+  lives. It contains:</p>
+
+  <h3>PayPal credentials</h3>
+  <p>Four numbered steps with deep links and copy buttons:</p>
+  <ol>
+    <li><strong>Open Apps &amp; Credentials</strong> &mdash;
+        <a href="https://developer.paypal.com/dashboard/applications/sandbox"
+           target="_blank" rel="noopener">developer.paypal.com/dashboard/applications/sandbox</a>
+        (look for the &ldquo;You&rsquo;re in sandbox mode&rdquo; banner).</li>
+    <li><strong>Use an existing app</strong> (e.g. <em>Default Application</em>) under
+        <em>REST API apps</em>, or click <em>Create App</em>.</li>
+    <li><strong>If creating a new app</strong>, the dialog asks three fields:
+        <ul>
+          <li><em>App Name</em> &mdash; any label, e.g. <code>paypal-saas-mvp</code>.</li>
+          <li><em>Type</em> &mdash; choose <strong>Merchant</strong>, not Platform.
+              Merchant = you are the seller taking payments. Platform is for
+              marketplaces and partner onboarding.</li>
+          <li><em>Sandbox Account</em> &mdash; the Business sandbox account the
+              credentials act on behalf of. Keep the default
+              <code>sb-&hellip;@business.example.com (US)</code>. If empty,
+              create one at
+              <a href="https://developer.paypal.com/dashboard/accounts"
+                 target="_blank" rel="noopener">developer.paypal.com/dashboard/accounts</a>.</li>
+        </ul>
+    </li>
+    <li><strong>Paste Client ID and Secret</strong> into the form. Click
+        <em>Save and validate</em>. The backend calls PayPal OAuth once to confirm
+        the credentials, then writes them to <code>config/secrets.json</code>
+        with mode <code>0600</code>.</li>
+  </ol>
+
+  <h3>Webhook ID</h3>
+  <p>Separate, later step on the <em>same app page</em>:
+  open the REST app &rarr; <em>Webhooks</em> &rarr; <em>Add Webhook</em>, URL
+  <code>https://&lt;ngrok&gt;/webhook</code>, events
+  <code>BILLING.SUBSCRIPTION.ACTIVATED</code>,
+  <code>.CANCELLED</code>, <code>.EXPIRED</code>,
+  <code>PAYMENT.SALE.COMPLETED</code>. Copy the <code>WH-&hellip;</code> ID
+  into the Webhook ID field.</p>
+  <p><strong>Not the NVP/SOAP section.</strong> The
+  &ldquo;NVP/SOAP API apps &mdash; Setup and manage webhooks&rdquo; block on
+  Apps &amp; Credentials is the legacy SOAP path; this app uses REST.</p>
+
+  <h3>Brand &amp; pricing, logo, plan registration</h3>
+  <p>The same page saves brand name, tier prices, a logo, and the output of
+  <em>Register plans with PayPal</em> to <code>config/brand.json</code>.
+  Those values override the corresponding <code>.env</code> entries.</p>
+
+  <h3>Locking the setup page down</h3>
+  <p>In <code>.env</code>, set:</p>
+  <pre><code>SETUP_REQUIRES_LOGIN=1
+CREDS_FROM_ENV_ONLY=1</code></pre>
+  <p>Then <code>/setup</code> requires a logged-in session and
+  <code>/setup/secrets</code> returns 403 &mdash; credentials come only from
+  <code>.env</code>. Delete <code>config/secrets.json</code> first so nothing
+  is picked up if the env vars are ever unset.</p>
+</section>
+
 </main>
 
 <footer>

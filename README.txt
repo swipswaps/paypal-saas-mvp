@@ -135,6 +135,24 @@ Banners to ignore:
     -> cosmetic; copy-paste of the Secret is easier on desktop.
 
 
+
+SETUP PAGE (http://localhost:5000/setup)
+----------------------------------------
+A single page holds all local configuration:
+
+- PayPal credentials form (Client ID, Secret, Webhook ID, SECRET_KEY)
+  with steps, deep links, and copy buttons. Validates via PayPal OAuth
+  before writing to config/secrets.json with mode 0600.
+- Brand & pricing form (writes config/brand.json, overrides .env).
+- Logo upload (SVG/PNG/JPG/WEBP, served from static/brand/).
+- "Register plans with PayPal" button (calls /setup/register-plans).
+- Environment view (secrets masked).
+- Port scan (what is listening on 5000/5001/5002/8000/8080/3000).
+
+Lock down for production:
+  SETUP_REQUIRES_LOGIN=1     -> /setup requires session
+  CREDS_FROM_ENV_ONLY=1      -> /setup/secrets returns 403
+
 IDEMPOTENCY
 -----------
 - Managed files overwritten on each bootstrap run.
