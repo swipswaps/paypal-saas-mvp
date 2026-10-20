@@ -1,0 +1,382 @@
+================================================================================
+PAYPAL SAAS SUBSCRIPTION MVP — HANDOFF
+================================================================================
+Repository : https://github.com/swipswaps/paypal-saas-mvp
+Pages      : https://swipswaps.github.io/paypal-saas-mvp/
+Commit     : f67513c  (plus the commit that adds this file)
+Original   : NeuralNine, "PayPal Python Crash Course"
+             https://youtu.be/zSExhXEfhJo
+
+Line numbers in 【】 refer to the raw file as fetched from
+raw.githubusercontent.com/swipswaps/paypal-saas-mvp/main/<file>
+at this commit. Official-doc citations follow the same bracket format.
+
+--------------------------------------------------------------------------------
+1. VERIFIED STATE AT HANDOFF
+--------------------------------------------------------------------------------
+Executed against the running container on 2026-10-20:
+
+  extended_test.sh    PASS=29 FAIL=0 SKIP=0
+  setup_test.sh       PASS=23 FAIL=0 SKIP=1
+  account_audit.sh    PASS=18 FAIL=0 INFO=2 SKIP=0
+  /health             {"brand":"Demo SaaS","creds_configured":false,
+                       "status":"healthy"}
+  /setup              renders all guidance needles and real deep links
+  Pages               HTTP 200
+
+The single SKIP in setup_test.sh is "register-plans actually calls PayPal" —
+correct, because no sandbox credentials are configured.
+
+One regression is recorded honestly: the CLI prompt is the simple form
+("Prompt now? [y/N]") [reference:1], not the [o/e/s] walkthrough that an
+earlier revision attempted. The /setup page carries the full guidance, so no
+user-facing information is lost. Re-upgrading the CLI prompt is optional and
+low priority.
+
+--------------------------------------------------------------------------------
+2. THE ONE UNVERIFIED BOUNDARY
+--------------------------------------------------------------------------------
+Everything that does not require live PayPal traffic is tested. Everything that
+does require it is not:
+
+  UNVERIFIED   PayPal OAuth with real sandbox keys
+  UNVERIFIED   POST /v1/catalogs/products  and  POST /v1/billing/plans
+  UNVERIFIED   subscription approval redirect -> PayPal checkout
+  UNVERIFIED   webhook delivery from PayPal to /webhook
+  UNVERIFIED   user tier upgrade driven by a real BILLING.SUBSCRIPTION.ACTIVATED
+
+These are verified by paypal_test.sh (connectivity) and by the browser flow in
+section 6 (end to end). Nothing else is outstanding.
+
+--------------------------------------------------------------------------------
+3. FILE MAP
+--------------------------------------------------------------------------------
+app.py            Flask app: auth, /setup, /subscribe, /webhook, /health
+setup_plans.py    Registers a product and two plans at PayPal; importable
+templates/        9 Jinja templates (base, index, login, register, dashboard,
+                  premium, upgrade_required, success, events, setup)
+config/           brand.json (brand + plan IDs), secrets.json (0600 creds)
+static/brand/     uploaded logo/favicon
+docs/             GitHub Pages site (static only)
+Dockerfile        python:3.12-slim, /app chmod 0777 so SQLite WAL works
+docker-compose.yml ports, env_file, bind mounts, extra_hosts
+extended_test.sh  29 route/error/DB checks, no credentials needed
+setup_test.sh     23 /setup checks, no credentials needed
+account_audit.sh  18 auth/session checks + explicit gap audit
+paypal_test.sh    5 connectivity checks, skips without credentials
+
+--------------------------------------------------------------------------------
+4. THE FIVE FLOWS, WITH CODE AND SOURCES
+--------------------------------------------------------------------------------
+
+4.1 SDK INITIALISATION
+---------------------
+The package is `paypalserversdk` (no underscores between paypal and serversdk),
+the client class is `PaypalServersdkClient`, and the OAuth parameters are
+`o_auth_client_id` / `o_auth_client_secret` — not `oath_*`.
+
+  app.py [reference:2]
+    from paypalserversdk.paypal_serversdk_client import PaypalServersdkClient
+    from paypalserversdk.http.auth.o_auth_2 import ClientCredentialsAuthCredentials
+    from paypalserversdk.configuration import Environment
+
+  app.py [reference:3]
+    def _make_paypal():
+        return PaypalServersdkClient(
+            client_credentials_auth_credentials=ClientCredentialsAuthCredentials(
+                o_auth_client_id=CLIENT_ID, o_auth_client_secret=CLIENT_SECRET),
+            environment=Environment.SANDBOX)
+
+Official SDK README confirms the same import path and parameter names
+[reference:4], and the two environments PRODUCTION / SANDBOX with SANDBOX as
+default [reference:5]. The SDK covers only five controllers — Orders, Payments,
+Vault, Transaction Search, Subscriptions [reference:6] — which is why catalog
+products are created with plain REST rather than the SDK.
+
+4.2 PRODUCT AND PLAN REGISTRATION
+---------------------------------
+A product is `type: SERVICE`, `category: SOFTWARE`; a plan hangs off it with
+one infinite REGULAR billing cycle.
+
+  setup_plans.py [reference:7]
+    def _create_product(tok, api_base, name, description):
+        body = {"name": name, "description": description,
+                "type": "SERVICE", "category": "SOFTWARE"}
+        r = requests.post(f"{api_base}/v1/catalogs/products",
+                          headers=_headers(tok), json=body, timeout=15)
+        r.raise_for_status()
+        return r.json()["id"]
+
+    def _create_plan(tok, api_base, product_id, name, price, currency, interval):
+        body = {"product_id": product_id, "name": name,
+                "description": f"{name} {interval.lower()}ly subscription",
+                "status": "ACTIVE",
+                "billing_cycles": [{
+                    "frequency": {"interval_unit": interval, "interval_count": 1},
+                    "tenure_type": "REGULAR", "sequence": 1, "total_cycles": 0,
+                    "pricing_scheme": {"fixed_price": {
+                        "value": price, "currency_code": currency}}}],
+                "payment_preferences": {"auto_bill_outstanding": True,
+                                        "payment_failure_threshold": 3}}
+        r = requests.post(f"{api_base}/v1/billing/plans",
+                          headers=_headers(tok), json=body, timeout=15)
+        r.raise_for_status()
+        return r.json()["id"]
+
+Sources: product `type` allowed values PHYSICAL / DIGITAL / SERVICE and
+`category` examples including SOFTWARE [reference:8]; the Subscriptions v1
+reference lists `POST /v1/billing/plans` and `POST /v1/billing/subscriptions`
+[reference:9]; `total_cycles: 0` means an infinite REGULAR cycle [reference:10].
+
+Note on pricing: the price lives in two places. `setup_plans.py` sends it to
+PayPal as `fixed_price` — that is what PayPal actually charges. `app.py`'s
+`_plans()` displays it [reference:11]. Changing the display alone changes
+nothing; the plan must be re-registered.
+
+4.3 SUBSCRIPTION CREATION
+-------------------------
+  app.py [reference:12]
+    @app.route("/subscribe/<tier>")
+    def subscribe(tier):
+        user = current_user()
+        plans = _plans()
+        if not user or tier not in plans:
+            return redirect(url_for("login"))
+        plan_id = plans[tier]["plan_id"]
+        if not plan_id:
+            return "PLAN_ID not configured. Use /setup to register plans.", 500
+        from paypalserversdk.models.create_subscription_request import CreateSubscriptionRequest
+        from paypalserversdk.models.subscription_application_context import SubscriptionApplicationContext
+        req = CreateSubscriptionRequest(
+            plan_id=plan_id,
+            custom_id=str(user["id"]),
+            application_context=SubscriptionApplicationContext(
+                brand_name=_brand()["name"],
+                return_url=f"{BASE_URL}/subscription/success",
+                cancel_url=f"{BASE_URL}/dashboard",
+                user_action="SUBSCRIBE_NOW"))
+        resp = paypal.subscriptions.create_subscription(body=req)
+        for link in resp.body.links:
+            if link.rel == "approve":
+                return redirect(link.href)
+
+`custom_id` is the user's row id. It survives into webhook payloads as
+`resource.custom_id`, which is how the webhook finds the user without guessing.
+`return_url` and `cancel_url` must be absolute and publicly reachable — hence
+BASE_URL and ngrok.
+
+4.4 WEBHOOK VERIFICATION
+------------------------
+The raw bytes are read before anything parses them. PayPal signs
+`transmission_id|transmission_time|webhook_id|CRC32(raw_body)` with its private
+key; the public certificate is fetched from the `PAYPAL-CERT-URL` header.
+
+  app.py [reference:13]
+    def verify_webhook(raw, headers):
+        tid   = headers.get("PAYPAL-TRANSMISSION-ID")
+        ttime = headers.get("PAYPAL-TRANSMISSION-TIME")
+        cert  = headers.get("PAYPAL-CERT-URL")
+        sig   = headers.get("PAYPAL-TRANSMISSION-SIG")
+        if not all([tid, ttime, cert, sig, WEBHOOK_ID]):
+            return False
+        crc = zlib.crc32(raw) & 0xFFFFFFFF
+        msg = f"{tid}|{ttime}|{WEBHOOK_ID}|{crc}".encode()
+        pem = requests.get(cert, timeout=15).content
+        pub = serialization.load_pem_public_key(pem)
+        pub.verify(base64.b64decode(sig), msg,
+                   padding.PKCS1v15(), hashes.SHA256())
+        return True
+
+  app.py [reference:14]
+    @app.route("/webhook", methods=["POST"])
+    def webhook():
+        raw = request.get_data()
+        if not verify_webhook(raw, request.headers):
+            return jsonify({"error": "Invalid signature"}), 400
+        event = json.loads(raw.decode("utf-8"))
+
+Sources: the signed string is transmission-id | transmission-time | webhook-id
+| CRC32(body) [reference:15]; the request body fields `auth_algo`, `cert_url`,
+`transmission_id`, `transmission_sig`, `transmission_time`, `webhook_id`,
+`webhook_event` are enumerated in the official reference [reference:16]; and
+`request.get_data()` returns the raw bytes regardless of content type, whereas
+`request.data` may parse form data first [reference:17]. That distinction is the
+whole reason this flow works.
+
+Events handled [reference:18][reference:19]:
+
+  BILLING.SUBSCRIPTION.ACTIVATED   -> tier = plan's tier, status = active
+  BILLING.SUBSCRIPTION.CANCELLED   -> tier = free
+  BILLING.SUBSCRIPTION.EXPIRED     -> tier = free
+  PAYMENT.SALE.COMPLETED           -> status = active (renewal)
+
+4.5 LOCAL PERSISTENCE
+---------------------
+  app.py [reference:20]
+    def get_db():
+        if "db" not in g:
+            g.db = sqlite3.connect(DB_NAME, timeout=15)
+            g.db.row_factory = sqlite3.Row
+            g.db.execute("PRAGMA journal_mode=WAL;")
+
+WAL is persistent once set and survives across connections [reference:21]; it was
+introduced in SQLite 3.7.0 [reference:22]. `timeout=15` plus WAL prevents the
+"database is locked" failures that concurrent webhook deliveries otherwise
+produce.
+
+Critical Docker detail: WAL creates `saas_shop.db-wal` and `saas_shop.db-shm`
+next to the database. If `/app` is not writable by the container UID, SQLite
+reports `attempt to write a readonly database`. The Dockerfile therefore runs
+`chmod 0777 /app` and compose runs as `${HOST_UID}:${HOST_GID}`.
+
+--------------------------------------------------------------------------------
+5. CONNECTIVITY TEST
+--------------------------------------------------------------------------------
+  bash paypal_test.sh
+
+Prints 5 checks. With placeholders in .env it prints SKIP=3 and exits 0 —
+that is success, not failure. With real sandbox keys it must print
+PASS=5 FAIL=0 SKIP=0.
+
+If OAuth returns 401, the usual cause is live keys pasted into a sandbox app,
+or PAYPAL_API_BASE pointing at api-m.paypal.com instead of
+api-m.sandbox.paypal.com.
+
+--------------------------------------------------------------------------------
+6. END-TO-END LIVE TEST
+--------------------------------------------------------------------------------
+Step 1. Credentials.
+  Open http://localhost:5000/setup. Follow steps 1-4 on that page.
+  The dialog asks exactly three things:
+    App Name         any label
+    Type             Merchant  (NOT Platform)
+    Sandbox Account  keep the default sb-...@business.example.com
+  If the Sandbox Account dropdown is empty, create a Business sandbox account
+  first: Developer Dashboard > Sandbox > Accounts > Create Account
+  [reference:23].
+
+Step 2. Register plans.
+  Click "Register plans with PayPal" on /setup. The returned plan IDs are
+  written to config/brand.json, which takes precedence over .env
+  [reference:24].
+
+Step 3. Expose the app.
+  Claim the free static dev domain at
+  https://dashboard.ngrok.com/cloud-edge/domains [reference:25], then:
+      ngrok http --domain=your-static-name.ngrok-free.app 5000
+  Put that HTTPS URL in BASE_URL and restart the container.
+
+Step 4. Webhook.
+  Same REST app page > Webhooks > Add Webhook.
+  URL      https://<your-static-name>/webhook
+  Events   BILLING.SUBSCRIPTION.ACTIVATED / .CANCELLED / .EXPIRED
+           PAYMENT.SALE.COMPLETED
+  Copy the WH-... ID into the Webhook ID field on /setup.
+  Do not use the "NVP/SOAP API apps" webhooks block — that is the legacy SOAP
+  path and this app is REST.
+
+Step 5. Browser flow.
+  http://localhost:5000 > register > login > Subscribe Basic
+  > approve with a sandbox personal buyer account
+  > land on /subscription/success
+  > http://localhost:5000/events shows BILLING.SUBSCRIPTION.ACTIVATED
+  > dashboard shows Tier: basic
+
+Step 6. Confirm in the database.
+      sqlite3 saas_shop.db \
+        "SELECT email, tier, subscription_status FROM users;"
+
+--------------------------------------------------------------------------------
+7. DEPLOYMENT
+--------------------------------------------------------------------------------
+Docker (recommended):
+      touch saas_shop.db
+      mkdir -p config static/brand
+      chmod 0777 config static/brand
+      docker compose up -d --build
+
+GitHub Pages serves docs/ only. Creating or updating the site:
+      gh api repos/OWNER/REPO/pages -X POST \
+        -F 'source[branch]=main' -F 'source[path]=/docs' \
+        -F 'build_type=legacy'
+Only "/" and "/docs" are legal source paths [reference:26][reference:27].
+
+--------------------------------------------------------------------------------
+8. TROUBLESHOOTING — every failure actually hit during this build
+--------------------------------------------------------------------------------
+Symptom                                   Cause / fix
+----------------------------------------  --------------------------------------
+ModuleNotFoundError: paypal_server_sdk    package is `paypalserversdk`
+401 on every API call                     `o_auth_client_id`, not `oath_*`
+Webhook 400 on every delivery             JSON re-serialised before verification;
+                                          read request.get_data() first
+database is locked                        enable WAL + timeout=15
+attempt to write a readonly database      /app not writable by container UID;
+                                          chmod 0777 /app in the Dockerfile
+"is a directory" on first docker up       saas_shop.db absent, Docker made a dir;
+                                          touch it first
+Permission denied writing config/         container ran as root earlier; rm the
+                                          file and let the UID-1000 container
+                                          recreate it
+gh repo create: name already exists       repo exists; git remote add + push
+gh api pages 422                           used -f instead of -F for nested
+                                          source[branch]/source[path]
+Pages 404                                 source path must be /docs, not /
+ngrok URL changes after restart           claim the free static domain
+SECRET_KEY warning on boot                set a real value; ephemeral keys
+                                          invalidate sessions on restart
+
+--------------------------------------------------------------------------------
+9. PRODUCTION GAPS — explicit, not vague
+--------------------------------------------------------------------------------
+Not implemented, deliberately out of MVP scope:
+  - change password, forgot password, change email, delete account (all 404)
+  - CSRF tokens on any form
+  - login rate limiting
+  - server-side session revocation (logout only drops the client cookie)
+  - PostgreSQL (SQLite is single-file, single-host)
+  - background worker for webhook processing
+
+account_audit.sh reports these as INFO rather than FAIL, because their absence
+is the documented state, not a defect.
+
+--------------------------------------------------------------------------------
+10. SOURCES
+--------------------------------------------------------------------------------
+PayPal Python Server SDK
+  https://github.com/paypal/PayPal-Python-Server-SDK
+  https://pypi.org/project/paypal-server-sdk/
+
+Subscriptions API v1
+  https://developer.paypal.com/docs/api/subscriptions/v1/
+
+Catalog Products v1
+  https://developer.paypal.com/docs/api/catalog-products/v1/
+
+Webhooks — verify signature
+  https://developer.paypal.com/api/webhooks/v1/verify-webhook-signature-post
+
+Subscriptions webhook events
+  https://developer.paypal.com/api/rest/webhooks/event-names/
+
+Sandbox accounts
+  https://developer.paypal.com/dashboard/accounts
+
+SQLite WAL
+  https://www.sqlite.org/wal.html
+
+ngrok free static domains
+  https://dashboard.ngrok.com/cloud-edge/domains
+
+GitHub Pages REST API
+  https://docs.github.com/en/rest/pages/pages
+
+Flask request.get_data
+  https://flask.palletsprojects.com/en/stable/api/#flask.Request.get_data
+
+Python getpass
+  https://docs.python.org/3/library/getpass.html
+
+NeuralNine — original tutorial
+  https://youtu.be/zSExhXEfhJo
+================================================================================

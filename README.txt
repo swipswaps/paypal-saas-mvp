@@ -3,6 +3,7 @@ PayPal Python SaaS Subscription MVP — Audited, Idempotent Edition
 ================================================================
 CREDITS: NeuralNine — https://youtu.be/zSExhXEfhJo
 Repo:  https://github.com/swipswaps/paypal-saas-mvp
+Handoff: see HANDOFF.txt for verified state, code walkthrough, and sources
 Pages: https://swipswaps.github.io/paypal-saas-mvp/
 
 NEW IN THIS EDITION
