@@ -105,6 +105,19 @@ CODE=$(curl -s -o "$BODY" -w '%{http_code}' -X POST "$BASE/webhook" \
   -d '{"event_type":"BILLING.SUBSCRIPTION.ACTIVATED","resource":{}}')
 check "webhook forged sig -> 400" "400" "$CODE"
 
+# ---- /setup and /api/ports/scan ----
+CODE=$(curl -s -o "$BODY" -w '%{http_code}' "$BASE/setup")
+check "GET /setup -> 200" "200" "$CODE"
+gcheck "/setup shows brand" "Setup" "$BODY"
+
+CODE=$(curl -s -o "$BODY" -w '%{http_code}' -X POST "$BASE/api/ports/scan" \
+  -H 'Content-Type: application/json' \
+  -d '{"hosts":["localhost"],"ports":[5000,5001]}')
+check "POST /api/ports/scan -> 200" "200" "$CODE"
+grep -q '"results"' "$BODY" \
+  && { echo "PASS  /api/ports/scan returns results[]"; PASS=$((PASS+1)); } \
+  || { echo "FAIL  /api/ports/scan returns results[]"; FAIL=$((FAIL+1)); }
+
 # ---- DB invariants ----
 WAL=""
 if command -v sqlite3 > /tmp/_has_sqlite3_$$ 2>&1 && [ -s /tmp/_has_sqlite3_$$ ]; then

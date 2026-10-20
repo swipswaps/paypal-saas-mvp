@@ -65,6 +65,31 @@ diagnostic commands. To move this app:
   docker compose up -d --build
 The probe on the Pages site auto-detects the new port within a few seconds.
 
+
+PORT SCAN AND /setup
+--------------------
+- The backend now identifies what is on each configured port
+  (localhost, host.docker.internal, 172.17.0.1 x 5000/5001/5002/8000/8080/3000).
+  Open http://localhost:5000/setup and click "Scan now".
+- On startup the app also prints:
+    localhost:5000 -> paypal-saas-backend
+    localhost:5001 -> python http.server
+    ...
+- The Pages site has a "Scan via detected backend" button that enriches the
+  browser probe with the same identities (needed because the browser cannot
+  read cross-origin server headers).
+
+CUSTOM PROBE INPUT
+------------------
+The Pages probe accepts "localhost:5001", "5001", "localhost", or a full URL.
+HTTP endpoints on non-loopback hosts are blocked by mixed-content rules when
+the page is HTTPS; the UI says so explicitly.
+
+REQUIRE LOGIN FOR /setup (recommended for exposed deployments)
+-------------------------------------------------------------
+echo "SETUP_REQUIRES_LOGIN=1" >> .env
+docker compose up -d --build
+
 IDEMPOTENCY
 -----------
 - Managed files overwritten on each bootstrap run.

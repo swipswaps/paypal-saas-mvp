@@ -30,18 +30,19 @@
   th, td { text-align:left; padding:.45rem .55rem; border-bottom:1px solid #334155; vertical-align:top; }
   th { color:var(--muted); font-weight:600; }
   a { color:var(--accent); }
-  button, input, textarea, select { font:inherit; }
+  button, input, select { font:inherit; }
   button { background:var(--accent); color:#0f172a; border:0; padding:.45rem .85rem; border-radius:.4rem; cursor:pointer; margin:.2rem .2rem .2rem 0; font-weight:600; }
+  button:disabled { opacity:.5; cursor:not-allowed; }
   button.sec { background:#334155; color:var(--fg); }
   input[type=text] { padding:.4rem .55rem; border-radius:.4rem; border:1px solid #475569; background:#0b1220; color:var(--fg); }
   fieldset { border:1px solid #334155; border-radius:.5rem; padding:.75rem 1rem; margin:0 0 .75rem; }
   legend { padding:0 .4rem; color:var(--accent); font-size:.9rem; }
   label { display:block; font-size:.85rem; color:var(--muted); margin:.35rem 0; }
   label input, label select { display:block; width:100%; margin-top:.2rem; }
-  #probe-table tr.ours td { color:var(--ok); font-weight:600; }
-  #probe-table tr.other td { color:var(--warn); }
-  #probe-table tr.free td { color:var(--muted); }
-  #probe-table tr.unreachable td { color:var(--err); }
+  #probe-table tr.ours td, #backend-scan-table tr.ours td { color:var(--ok); font-weight:600; }
+  #probe-table tr.other td, #backend-scan-table tr.other td { color:var(--warn); }
+  #probe-table tr.free td, #backend-scan-table tr.free td { color:var(--muted); }
+  #probe-table tr.unreachable td, #backend-scan-table tr.unreachable td { color:var(--err); }
   footer { text-align:center; color:var(--muted); font-size:.85rem; padding:1.5rem 1rem 2rem; }
   .badge { display:inline-block; background:#0b1220; border:1px solid #334155;
            border-radius:999px; padding:.1rem .6rem; font-size:.75rem; color:var(--muted); margin:0 .15rem; }
@@ -87,52 +88,50 @@
     <button id="btn-clear-all" class="sec">Reset everything</button>
   </div>
   <div style="margin-top:1rem">
-    <label>Probe a custom endpoint (e.g. http://192.168.1.50:5000)
-      <input type="text" id="custom-url" placeholder="http://localhost:5001">
+    <label>Probe a custom endpoint
+      <input type="text" id="custom-url" placeholder="localhost:5001 &nbsp;or&nbsp; 5001 &nbsp;or&nbsp; http://192.168.1.50:5000">
     </label>
     <button id="btn-probe-custom" class="sec">Probe</button>
     <div id="custom-result" class="muted" style="margin-top:.35rem"></div>
   </div>
 </section>
 
+<section id="backend-scan">
+  <h2>Backend-side scan</h2>
+  <p>Browser probes can only see "TCP is up / CORS blocked". The backend can read the
+  <code>Server:</code> header, the HTTP status, and the body — so it can identify what
+  is actually listening on each port. Click below once a backend is detected above.</p>
+  <button id="btn-backend-scan" disabled>Scan via detected backend</button>
+  <div id="backend-scan-status" class="muted" style="margin-top:.5rem">No backend detected yet.</div>
+  <table id="backend-scan-table" style="display:none;margin-top:.75rem">
+    <thead><tr><th>Endpoint</th><th>State</th><th>Identity</th><th>Detail</th></tr></thead>
+    <tbody></tbody>
+  </table>
+</section>
+
 <section id="port-conflict" style="display:none">
   <h2>Port conflict</h2>
-  <p>Port 5000 responded, but it is <strong>not</strong> the PayPal SaaS backend. Some other
-  service is listening. Choose one path below.</p>
-
+  <p>Port 5000 responded, but it is <strong>not</strong> the PayPal SaaS backend.</p>
   <h3>1. Identify what is on port 5000</h3>
   <pre><code>lsof -i :5000
 ss -tlnp | grep :5000
-curl -sI http://localhost:5000/ | head -5</code></pre>
-  <p>Or run the bundled helper (from the repo directory):</p>
-  <pre><code>bash fingerprint-port.sh 5000</code></pre>
-
+bash fingerprint-port.sh 5000</code></pre>
   <h3>2. Common causes</h3>
   <ul>
-    <li><strong>macOS AirPlay Receiver</strong> — System Settings &rarr; General &rarr; AirDrop &amp; Handoff &rarr; AirPlay Receiver &rarr; Off</li>
+    <li><strong>macOS AirPlay Receiver</strong> — System Settings &rarr; General &rarr; AirPlay Receiver &rarr; Off</li>
     <li><strong>Another Flask/Python app</strong> — <code>pkill -f 'python app.py'</code></li>
-    <li><strong>Docker Registry</strong> — <code>docker ps</code> then stop the container</li>
-    <li><strong>Previous PayPal SaaS run</strong> — <code>docker compose down</code></li>
+    <li><strong>Docker Registry</strong> — <code>docker ps</code></li>
+    <li><strong>Previous run</strong> — <code>docker compose down</code></li>
   </ul>
-
   <h3>3. Move this app to a different port</h3>
-  <pre><code># Append to .env:
-PORT=5001
-HOST=0.0.0.0
-
-# Restart:
+  <pre><code># Append to .env: PORT=5001
 docker compose up -d --build</code></pre>
-  <p>Then re-probe. The page will find the backend at <code>http://localhost:5001</code>.</p>
 </section>
 
 <section id="config-builder">
   <h2>White-label &amp; pricing</h2>
-  <p><strong>Interactive setup runs on the backend, not here.</strong> When the probe above detects your local Flask app, open <a href="http://localhost:5000/setup">http://localhost:5000/setup</a> (or whichever host:port the probe found) to change branding, upload a logo, and register plans with PayPal. The form below produces a static snippet for copy-paste workflows.</p>
-<p>Fill in your brand, tier names, and prices. The form produces a <code>.env</code>
-  snippet you append to your local project directory, then re-run <code>setup_plans.py</code>.
-  Nothing is sent to a server — everything runs in your browser and stays in localStorage
-  until you copy it out.</p>
-
+  <p>Fill in brand, tier names, prices. The form emits a <code>.env</code> snippet you
+  append locally. Nothing is sent to a server.</p>
   <form id="cfg-form">
     <fieldset>
       <legend>Brand</legend>
@@ -165,7 +164,6 @@ docker compose up -d --build</code></pre>
     <button type="submit">Generate .env snippet</button>
     <button type="button" id="cfg-reset" class="sec">Reset to defaults</button>
   </form>
-
   <div id="cfg-output" style="display:none;margin-top:1rem">
     <h3>Generated .env snippet</h3>
     <pre><code id="cfg-env"></code></pre>
@@ -187,7 +185,7 @@ cd paypal-saas-mvp</code></pre>
 pip install flask paypal-server-sdk python-dotenv requests Werkzeug cryptography</code></pre>
   <h3>3. Configure environment</h3>
   <pre><code>cp .env.example .env
-# Edit .env: PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET, SECRET_KEY, BASE_URL
+# Edit: PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET, SECRET_KEY, BASE_URL.
 # Optionally set PORT=5001 if 5000 is taken.</code></pre>
   <h3>4. Register subscription plans</h3>
   <pre><code>python setup_plans.py
@@ -195,49 +193,18 @@ pip install flask paypal-server-sdk python-dotenv requests Werkzeug cryptography
   <h3>5. Start</h3>
   <pre><code>docker compose up -d --build
 # or: python app.py</code></pre>
-  <p>Open <a href="http://localhost:5000">http://localhost:5000</a> (or whichever PORT you set).</p>
-</section>
-
-<section id="pricing">
-  <h2>Where the monthly fees come from</h2>
-  <p>Prices exist in two places: <code>setup_plans.py</code> registers them with PayPal
-  (<code>fixed_price</code>), and <code>app.py</code>'s <code>PLANS</code> dict displays them
-  (now driven by <code>TIER_*_PRICE</code> env vars). PayPal charges the buyer monthly;
-  the app records webhooks. To change prices, use the config builder above, re-run
-  <code>setup_plans.py</code>, copy the new <code>PLAN_ID_*</code>, and rebuild.</p>
+  <p>Open <a href="http://localhost:5000">http://localhost:5000</a>. Open <a href="http://localhost:5000/setup">/setup</a> for diagnostics.</p>
 </section>
 
 <section id="account-features">
   <h2>Account features</h2>
   <table>
     <tr><th>Feature</th><th>Status</th></tr>
-    <tr><td>Register / login / logout</td><td>Works; scrypt password hashing; signed session cookie</td></tr>
+    <tr><td>Register / login / logout</td><td>Works; scrypt hashing; signed session cookie</td></tr>
     <tr><td>Multi-device sessions</td><td>Works; independent per device</td></tr>
     <tr><td>Change password / forgot / change email / delete account</td><td><strong>Not implemented</strong> (404)</td></tr>
     <tr><td>CSRF tokens / login rate limiting</td><td><strong>Not present</strong> — sandbox OK, prod gap</td></tr>
   </table>
-  <p>Run <code>bash account_audit.sh</code> to verify locally.</p>
-</section>
-
-<section id="troubleshooting">
-  <h2>Troubleshooting</h2>
-  <table>
-    <tr><th>Symptom</th><th>Fix</th></tr>
-    <tr><td>Port 5000 in use (not our app)</td><td>Click "Re-probe"; run <code>bash fingerprint-port.sh 5000</code>; or set <code>PORT=5001</code> in <code>.env</code></td></tr>
-    <tr><td>Probe reports "CORS blocked"</td><td>A different service is on that port. Use the Port conflict panel.</td></tr>
-    <tr><td><code>ModuleNotFoundError: paypal_server_sdk</code></td><td>Package is <code>paypalserversdk</code>; class is <code>PaypalServersdkClient</code></td></tr>
-    <tr><td><code>ModuleNotFoundError: requests</code></td><td>Run step 2 (venv + pip install), then re-run <code>setup_plans.py</code></td></tr>
-    <tr><td>401 on every API call</td><td>Use <code>o_auth_client_id</code> / <code>o_auth_client_secret</code></td></tr>
-    <tr><td>Webhook 400 Invalid signature</td><td>Read <code>request.get_data()</code> first; verify raw bytes</td></tr>
-    <tr><td><code>database is locked</code></td><td>WAL is enabled; keep <code>timeout=15</code></td></tr>
-    <tr><td><code>is a directory</code> (Docker)</td><td><code>touch saas_shop.db</code> before <code>docker compose up</code></td></tr>
-  </table>
-</section>
-
-<section id="readme">
-  <h2>README</h2>
-  <p><a href="https://github.com/swipswaps/paypal-saas-mvp/blob/main/README.txt">View on GitHub</a>
-  &middot; <a href="README.txt">Serve from this site</a></p>
 </section>
 
 <section id="credit">
@@ -261,11 +228,29 @@ pip install flask paypal-server-sdk python-dotenv requests Werkzeug cryptography
   var tableEl  = document.getElementById('probe-table');
   var tbody    = tableEl.querySelector('tbody');
   var conflict = document.getElementById('port-conflict');
+  var beBtn    = document.getElementById('btn-backend-scan');
+  var beStatus = document.getElementById('backend-scan-status');
+  var beTable  = document.getElementById('backend-scan-table');
+  var beBody   = beTable.querySelector('tbody');
+  var lastOurs = null;
+
+  function normalizeUrl(input) {
+    var v = (input || '').trim();
+    if (!v) return null;
+    if (/^\d+$/.test(v)) return 'http://localhost:' + v;
+    if (!/^https?:\/\//i.test(v)) v = 'http://' + v;
+    return v.replace(/\/+$/, '');
+  }
+
+  function isLoopback(url) {
+    return /^http:\/\/(localhost|127\.0\.0\.1):/i.test(url);
+  }
 
   function render(r) {
     var tr = document.createElement('tr');
     tr.className = r.status;
-    var detail = r.detail || (r.status === 'ours' ? ('status=' + (r.payload.status||'') + ', brand=' + (r.payload.brand||'')) : '—');
+    var detail = r.detail || (r.status === 'ours' ?
+      ('status=' + (r.payload.status || '') + ', brand=' + (r.payload.brand || '')) : '—');
     tr.innerHTML = '<td>' + r.host + ':' + r.port + '</td><td>' + r.status + '</td><td>' + detail + '</td>';
     tbody.appendChild(tr);
   }
@@ -275,17 +260,22 @@ pip install flask paypal-server-sdk python-dotenv requests Werkzeug cryptography
     statusEl.textContent = 'Probing…';
     tableEl.style.display = 'table';
     conflict.style.display = 'none';
+    beBtn.disabled = true;
+    beStatus.textContent = 'Probing…';
     window.PPSaaSProbe.probeAll(render).then(function (results) {
       var ours = results.filter(function (r) { return r.status === 'ours'; });
       if (ours.length > 0) {
         var first = ours[0];
-        var quirk = window.PPSaaSProbe.quirkNote(results);
-        statusEl.innerHTML = '<span class="ok">Backend detected</span> at '
-            + '<a href="' + first.base + '/">' + first.base + '</a> — '
-            + '<a href="' + first.base + '/setup">open /setup</a>'
-            + (quirk ? ' <span class="muted">(browser blocked <code>http://localhost</code> as mixed content; use the <code>127.0.0.1</code> link above)</span>' : '');
+        lastOurs = first;
+        beBtn.disabled = false;
+        beStatus.innerHTML = 'Detected backend at <code>' + first.base + '</code>.';
+        statusEl.innerHTML = '<span class="ok">Backend detected</span> at ' +
+          '<a href="' + first.base + '/">' + first.base + '/</a> — ' +
+          '<a href="' + first.base + '/setup">open /setup</a>';
       } else {
-        var conflictHit = results.filter(function (r) { return r.port === 5000 && r.status === 'other'; }).length > 0;
+        lastOurs = null;
+        beStatus.textContent = 'No backend detected.';
+        var conflictHit = results.some(function (r) { return r.port === 5000 && r.status === 'other'; });
         statusEl.innerHTML = '<span class="bad">No backend detected</span>. Start it with <code>docker compose up -d --build</code>.';
         if (conflictHit) conflict.style.display = 'block';
       }
@@ -293,28 +283,76 @@ pip install flask paypal-server-sdk python-dotenv requests Werkzeug cryptography
   }
 
   document.getElementById('btn-reprobe').addEventListener('click', run);
+
   document.getElementById('btn-reset').addEventListener('click', function () {
     window.PPSaaSProbe.clearLastGood();
     statusEl.textContent = 'Cleared cached endpoint. Re-probing…';
     run();
   });
+
   document.getElementById('btn-clear-all').addEventListener('click', function () {
     try { localStorage.clear(); } catch (e) {}
-    statusEl.textContent = 'Cleared all local state. Reload to reset forms.';
+    statusEl.textContent = 'Cleared local state. Reload to reset forms.';
   });
+
   document.getElementById('btn-probe-custom').addEventListener('click', function () {
-    var url = document.getElementById('custom-url').value.trim().replace(/\/+$/, '');
+    var raw = document.getElementById('custom-url').value;
+    var url = normalizeUrl(raw);
     var res = document.getElementById('custom-result');
-    if (!url) { res.textContent = 'Enter a URL first.'; return; }
+    if (!url) { res.textContent = 'Enter a URL, host:port, or port number.'; return; }
+    if (window.location.protocol === 'https:' && /^http:\/\//i.test(url) && !isLoopback(url)) {
+      res.innerHTML = '<span class="bad">Blocked by mixed content</span> — an HTTPS page ' +
+        'cannot fetch <code>' + url + '</code> unless the host is <code>localhost</code> ' +
+        'or <code>127.0.0.1</code>. Use one of those, or serve the app behind HTTPS.';
+      return;
+    }
     res.textContent = 'Probing ' + url + '/health …';
     var c = new AbortController(); var t = setTimeout(function(){c.abort();}, 2500);
     fetch(url + '/health', { signal: c.signal, mode: 'cors' })
       .then(function (r) { clearTimeout(t); if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function (j) {
-        if (j.status === 'healthy') res.innerHTML = '<span class="ok">Reachable</span> — brand=' + (j.brand || '?');
-        else res.innerHTML = '<span class="bad">Reachable but not our app</span>';
+        if (j.status === 'healthy') {
+          res.innerHTML = '<span class="ok">Reachable</span> — brand=' + (j.brand || '?') +
+            ' · <a href="' + url + '/setup">open /setup</a>';
+        } else {
+          res.innerHTML = '<span class="bad">Reachable but not our app</span>';
+        }
       })
-      .catch(function (e) { clearTimeout(t); if (/HTTP \d+/.test(e.message)) { res.innerHTML = '<span class="bad">Reachable but not our backend</span> (' + e.message + ')'; } else { res.innerHTML = '<span class="bad">Unreachable</span> (' + e.message + ')'; } });
+      .catch(function (e) { clearTimeout(t);
+        res.innerHTML = '<span class="bad">Unreachable</span> (' + e.message + ')'; });
+  });
+
+  beBtn.addEventListener('click', function () {
+    if (!lastOurs) return;
+    beBody.innerHTML = '';
+    beTable.style.display = 'table';
+    beStatus.textContent = 'Scanning via ' + lastOurs.base + ' …';
+    fetch(lastOurs.base + '/api/ports/scan', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({})
+    })
+    .then(function (r) { return r.json(); })
+    .then(function (j) {
+      beStatus.textContent = 'Backend scanned ' + j.results.length + ' endpoints at ' +
+        new Date(j.scanned_at * 1000).toLocaleTimeString();
+      j.results.forEach(function (r) {
+        var tr = document.createElement('tr');
+        var cls = r.state === 'closed' ? 'free'
+                : (r.identity === 'paypal-saas-backend' ? 'ours' : 'other');
+        tr.className = cls;
+        var detail = '';
+        if (r.payload) detail = 'status=healthy, brand=' + (r.payload.brand || '?');
+        else if (r.http) detail = JSON.stringify(r.http).slice(0, 160);
+        else if (r.http_health) detail = 'health: ' + JSON.stringify(r.http_health).slice(0, 160);
+        tr.innerHTML = '<td>' + r.host + ':' + r.port + '</td>' +
+                       '<td>' + r.state + '</td>' +
+                       '<td>' + (r.identity || '—') + '</td>' +
+                       '<td>' + detail + '</td>';
+        beBody.appendChild(tr);
+      });
+    })
+    .catch(function (e) { beStatus.textContent = 'Backend scan failed: ' + e.message; });
   });
 
   run();

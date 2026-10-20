@@ -4,31 +4,22 @@
 <title>{{ BRAND_NAME }}</title>
 <style>
   body{font-family:system-ui,sans-serif;margin:0;background:#0f172a;color:#e2e8f0}
-  header{background:#1e293b;padding:1rem 2rem;display:flex;justify-content:space-between;align-items:center;gap:1rem}
-  header .brand{display:flex;align-items:center;gap:.6rem;font-weight:700}
-  header .brand img{height:32px;width:auto;border-radius:.35rem;object-fit:contain}
+  header{background:#1e293b;padding:1rem 2rem;display:flex;justify-content:space-between;align-items:center}
   header a{color:#38bdf8;text-decoration:none;margin-left:1rem}
   main{max-width:860px;margin:2rem auto;padding:0 1rem}
   .card{background:#1e293b;border:1px solid #334155;border-radius:.75rem;padding:1.5rem;margin-bottom:1rem}
   .btn{display:inline-block;background:#38bdf8;color:#0f172a;padding:.55rem 1.1rem;border-radius:.5rem;text-decoration:none;font-weight:600;border:0;cursor:pointer}
   .btn.secondary{background:#334155;color:#e2e8f0}
-  input,select,textarea{width:100%;padding:.6rem;margin:.35rem 0 .9rem;border-radius:.45rem;border:1px solid #475569;background:#0f172a;color:#e2e8f0;box-sizing:border-box}
+  input{width:100%;padding:.6rem;margin:.35rem 0 .9rem;border-radius:.45rem;border:1px solid #475569;background:#0f172a;color:#e2e8f0}
   .err{color:#f87171} table{width:100%;border-collapse:collapse;font-size:.85rem}
   th,td{border-bottom:1px solid #334155;padding:.5rem;text-align:left;vertical-align:top}
   pre{white-space:pre-wrap;word-break:break-all;font-size:.75rem}
-  .hero-media{max-width:100%;border-radius:.5rem;margin-bottom:1rem}
-  .muted{color:#94a3b8;font-size:.85rem}
-  .ok{color:#34d399;font-weight:600} .bad{color:#f87171;font-weight:600}
+  th{color:#94a3b8;font-weight:600}
 </style></head>
-<body><header>
-  <span class="brand">
-    {% if BRAND_LOGO %}<img src="{{ url_for('static', filename=BRAND_LOGO) }}" alt="{{ BRAND_NAME }}">{% endif %}
-    <strong>{{ BRAND_NAME }}</strong>
-  </span>
-  <nav>
-    <a href="{{ url_for('index') }}">Home</a>
-    {% if user %}<a href="{{ url_for('dashboard') }}">Dashboard</a><a href="{{ url_for('logout') }}">Logout</a>
-    {% else %}<a href="{{ url_for('login') }}">Login</a><a href="{{ url_for('register') }}">Register</a>{% endif %}
-    <a href="{{ url_for('setup_page') }}">Setup</a>
-  </nav>
-</header><main>{% block content %}{% endblock %}</main></body></html>
+<body><header><strong>{{ BRAND_NAME }}</strong><nav>
+  <a href="{{ url_for('index') }}">Home</a>
+  {% if user %}<a href="{{ url_for('dashboard') }}">Dashboard</a>{% endif %}
+  <a href="{{ url_for('setup_page') }}">Setup</a>
+  {% if user %}<a href="{{ url_for('logout') }}">Logout</a>
+  {% else %}<a href="{{ url_for('login') }}">Login</a><a href="{{ url_for('register') }}">Register</a>{% endif %}
+</nav></header><main>{% block content %}{% endblock %}</main></body></html>
