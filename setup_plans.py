@@ -1,64 +1,66 @@
 import os, sys, requests
 from dotenv import load_dotenv
-load_dotenv()
 
-CLIENT_ID     = os.getenv("PAYPAL_CLIENT_ID")
-CLIENT_SECRET = os.getenv("PAYPAL_CLIENT_SECRET")
-API_BASE      = os.getenv("PAYPAL_API_BASE", "https://api-m.sandbox.paypal.com")
-BRAND_NAME    = os.getenv("BRAND_NAME", "Demo SaaS Platform")
-BRAND_TAGLINE = os.getenv("BRAND_TAGLINE", "Cloud software subscription service")
-CURRENCY      = os.getenv("CURRENCY_CODE", "USD")
-INTERVAL      = os.getenv("BILLING_INTERVAL", "MONTH")
-BASIC_NAME    = os.getenv("TIER_BASIC_NAME", "Basic Tier")
-BASIC_PRICE   = os.getenv("TIER_BASIC_PRICE", "9.99")
-PRO_NAME      = os.getenv("TIER_PRO_NAME", "Pro Tier")
-PRO_PRICE     = os.getenv("TIER_PRO_PRICE", "29.99")
+def _headers(tok):
+    return {"Authorization": f"Bearer {tok}", "Content-Type": "application/json"}
 
-if not CLIENT_ID or not CLIENT_SECRET:
-    print("ERROR: PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET must be set in .env", file=sys.stderr)
-    sys.exit(2)
-
-def token():
-    r = requests.post(f"{API_BASE}/v1/oauth2/token",
-        auth=(CLIENT_ID, CLIENT_SECRET),
+def _token(client_id, client_secret, api_base):
+    r = requests.post(f"{api_base}/v1/oauth2/token",
+        auth=(client_id, client_secret),
         data={"grant_type": "client_credentials"}, timeout=15)
-    if r.status_code == 401:
-        print("ERROR: PayPal returned 401. Check credentials.", file=sys.stderr); sys.exit(2)
     r.raise_for_status()
     return r.json()["access_token"]
 
-def headers(tok):
-    return {"Authorization": f"Bearer {tok}", "Content-Type": "application/json"}
-
-def create_product(tok):
-    body = {"name": BRAND_NAME, "description": BRAND_TAGLINE,
+def _create_product(tok, api_base, name, description):
+    body = {"name": name, "description": description,
             "type": "SERVICE", "category": "SOFTWARE"}
-    r = requests.post(f"{API_BASE}/v1/catalogs/products", headers=headers(tok), json=body, timeout=15)
-    if r.status_code in (401, 403):
-        print("ERROR: Catalog API 401/403. Enable Catalog and Subscriptions at "
-              "https://developer.paypal.com/dashboard/applications", file=sys.stderr); sys.exit(2)
+    r = requests.post(f"{api_base}/v1/catalogs/products",
+                      headers=_headers(tok), json=body, timeout=15)
     r.raise_for_status()
-    pid = r.json()["id"]; print(f"Product ID: {pid}"); return pid
+    return r.json()["id"]
 
-def create_plan(tok, product_id, name, price):
+def _create_plan(tok, api_base, product_id, name, price, currency, interval):
     body = {"product_id": product_id, "name": name,
-            "description": f"{name} {INTERVAL.lower()}ly subscription", "status": "ACTIVE",
-            "billing_cycles": [{"frequency": {"interval_unit": INTERVAL, "interval_count": 1},
+            "description": f"{name} {interval.lower()}ly subscription", "status": "ACTIVE",
+            "billing_cycles": [{"frequency": {"interval_unit": interval, "interval_count": 1},
                 "tenure_type": "REGULAR", "sequence": 1, "total_cycles": 0,
-                "pricing_scheme": {"fixed_price": {"value": price, "currency_code": CURRENCY}}}],
+                "pricing_scheme": {"fixed_price": {"value": price, "currency_code": currency}}}],
             "payment_preferences": {"auto_bill_outstanding": True, "payment_failure_threshold": 3}}
-    r = requests.post(f"{API_BASE}/v1/billing/plans", headers=headers(tok), json=body, timeout=15)
-    if r.status_code in (401, 403):
-        print("ERROR: Billing Plans API 401/403. Enable Subscriptions for your app.", file=sys.stderr); sys.exit(2)
+    r = requests.post(f"{api_base}/v1/billing/plans",
+                      headers=_headers(tok), json=body, timeout=15)
     r.raise_for_status()
-    plan_id = r.json()["id"]; print(f"{name} plan ID: {plan_id}"); return plan_id
+    return r.json()["id"]
+
+def register_plans(client_id, client_secret, api_base,
+                   brand_name, brand_tagline,
+                   basic_name, basic_price, pro_name, pro_price,
+                   currency_code, billing_interval):
+    tok = _token(client_id, client_secret, api_base)
+    prod = _create_product(tok, api_base, brand_name, brand_tagline)
+    basic = _create_plan(tok, api_base, prod, basic_name, basic_price, currency_code, billing_interval)
+    pro   = _create_plan(tok, api_base, prod, pro_name,   pro_price,   currency_code, billing_interval)
+    return {"product_id": prod, "plan_id_basic": basic, "plan_id_pro": pro}
+
+def main():
+    load_dotenv()
+    cid = os.getenv("PAYPAL_CLIENT_ID")
+    cs  = os.getenv("PAYPAL_CLIENT_SECRET")
+    ab  = os.getenv("PAYPAL_API_BASE", "https://api-m.sandbox.paypal.com")
+    if not cid or not cs:
+        print("ERROR: PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET must be set in .env", file=sys.stderr)
+        sys.exit(2)
+    result = register_plans(cid, cs, ab,
+        os.getenv("BRAND_NAME", "Demo SaaS Platform"),
+        os.getenv("BRAND_TAGLINE", "Cloud software subscription service"),
+        os.getenv("TIER_BASIC_NAME", "Basic Tier"),
+        os.getenv("TIER_BASIC_PRICE", "9.99"),
+        os.getenv("TIER_PRO_NAME", "Pro Tier"),
+        os.getenv("TIER_PRO_PRICE", "29.99"),
+        os.getenv("CURRENCY_CODE", "USD"),
+        os.getenv("BILLING_INTERVAL", "MONTH"))
+    print(f"Product ID: {result['product_id']}")
+    print(f"PLAN_ID_BASIC={result['plan_id_basic']}")
+    print(f"PLAN_ID_PRO={result['plan_id_pro']}")
 
 if __name__ == "__main__":
-    print(f"Registering {BRAND_NAME} / {BASIC_NAME} ({CURRENCY} {BASIC_PRICE}/{INTERVAL}) "
-          f"and {PRO_NAME} ({CURRENCY} {PRO_PRICE}/{INTERVAL})")
-    tok = token(); prod = create_product(tok)
-    basic = create_plan(tok, prod, BASIC_NAME, BASIC_PRICE)
-    pro   = create_plan(tok, prod, PRO_NAME, PRO_PRICE)
-    print("\nAdd these to .env:")
-    print(f"PLAN_ID_BASIC={basic}")
-    print(f"PLAN_ID_PRO={pro}")
+    main()

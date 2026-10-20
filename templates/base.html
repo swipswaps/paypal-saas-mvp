@@ -16,7 +16,7 @@
   pre{white-space:pre-wrap;word-break:break-all;font-size:.75rem}
   th{color:#94a3b8;font-weight:600}
 </style></head>
-<body><header><strong>{{ BRAND_NAME }}</strong><nav>
+<body><header><span style="display:flex;align-items:center;gap:.5rem">{% if BRAND_LOGO %}<img src="{{ url_for('static', filename=BRAND_LOGO) }}" alt="{{ BRAND_NAME }}" style="max-height:32px">{% endif %}<strong>{{ BRAND_NAME }}</strong></span><nav>
   <a href="{{ url_for('index') }}">Home</a>
   {% if user %}<a href="{{ url_for('dashboard') }}">Dashboard</a>{% endif %}
   <a href="{{ url_for('setup_page') }}">Setup</a>

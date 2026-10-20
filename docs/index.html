@@ -98,6 +98,7 @@
 
 <section id="backend-scan">
   <h2>Backend-side scan</h2>
+  <p class="muted" style="font-size:.85rem"><strong>Context:</strong> the browser sees <code>localhost</code> as <em>this host</em>. The backend, when running in Docker, sees <code>localhost</code> as <em>the container</em>. So a browser probe showing <code>localhost:5001 other</code> means "the host has something on 5001"; a backend scan showing <code>localhost:5001 closed</code> means "the container has nothing on 5001". The backend scan's <code>host.docker.internal:5001</code> row is the container-side equivalent of the browser's <code>localhost:5001</code> row.</p>
   <p>Browser probes can only see "TCP is up / CORS blocked". The backend can read the
   <code>Server:</code> header, the HTTP status, and the body — so it can identify what
   is actually listening on each port. Click below once a backend is detected above.</p>

@@ -97,6 +97,36 @@ IDEMPOTENCY
 - saas_shop.db touched, never truncated.
 - .git, origin, GitHub repo, Pages config detected and reused.
 
+
+FILE OWNERSHIP AND ONE-TIME HOST PREP
+-------------------------------------
+The container runs as ${HOST_UID:-1000}:${HOST_GID:-1000} (see .env). Set these
+to match your host user so files created inside the container are owned by you:
+
+    echo "HOST_UID=$(id -u)" >> .env
+    echo "HOST_GID=$(id -g)" >> .env
+
+One-time host prep (before the first `docker compose up --build`):
+
+    mkdir -p config static/brand
+    chmod 0777 config static/brand
+    touch saas_shop.db
+    chmod 0666 saas_shop.db
+
+Then:
+
+    docker compose up -d --build
+
+If a previous run left root-owned files behind, either restore via:
+
+    bash restore_brand.sh <snapshot.json>
+
+or fix in place:
+
+    docker exec -u root paypal-saas-mvp_fail-web-1 \
+      chmod -R 0777 /app/config /app/static/brand
+
+
 ACCOUNT FEATURES
 ----------------
 Login / logout / multi-device sessions: verified by account_audit.sh.

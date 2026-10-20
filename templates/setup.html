@@ -1,31 +1,71 @@
 {% extends "base.html" %}{% block content %}
 <div class="card">
-  <h2>Setup &amp; diagnostics</h2>
-  <p>Live state of <strong>{{ brand }}</strong>. This page is a debugging aid.
-  Set <code>SETUP_REQUIRES_LOGIN=1</code> in <code>.env</code> to require login.</p>
+  <h1>Setup &amp; diagnostics</h1>
+  <p>Live state of <strong>{{ brand }}</strong>. Set <code>SETUP_REQUIRES_LOGIN=1</code>
+  in <code>.env</code> to require login.</p>
 </div>
+
 <div class="card">
-  <h3>Environment (secrets masked)</h3>
+  <h2>Brand configuration</h2>
+  <p>Saved to <code>config/brand.json</code>. Overrides <code>.env</code> values.</p>
+  <form id="config-form">
+    <label>Brand name<input name="brand_name" value="{{ current_brand.name }}"></label>
+    <label>Tagline<input name="brand_tagline" value="{{ current_brand.tagline }}"></label>
+    <label>Basic tier name<input name="tier_basic_name" value="{{ plans.basic.name }}"></label>
+    <label>Basic price<input name="tier_basic_price" value="{{ plans.basic.price }}"></label>
+    <label>Pro tier name<input name="tier_pro_name" value="{{ plans.pro.name }}"></label>
+    <label>Pro price<input name="tier_pro_price" value="{{ plans.pro.price }}"></label>
+    <label>Currency code<input name="currency_code" value="{{ current_brand.symbol }}"></label>
+    <button type="submit" class="btn">Save configuration</button>
+    <span id="config-status"></span>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Logo upload</h2>
+  {% if current_brand.logo %}
+    <p>Current logo: <img src="{{ url_for('static', filename=current_brand.logo) }}" alt="logo" style="max-height:60px;vertical-align:middle"></p>
+  {% else %}
+    <p>No logo yet.</p>
+  {% endif %}
+  <form id="asset-form" enctype="multipart/form-data">
+    <input type="hidden" name="kind" value="logo">
+    <label>SVG, PNG, JPG, or WEBP<input type="file" name="file" accept=".svg,.png,.jpg,.jpeg,.webp"></label>
+    <button type="submit" class="btn">Upload logo</button>
+    <span id="asset-status"></span>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Register plans with PayPal</h2>
+  <p>Registers the current brand and tier prices as PayPal billing plans.
+  Requires <code>PAYPAL_CLIENT_ID</code> and <code>PAYPAL_CLIENT_SECRET</code> in <code>.env</code>.</p>
+  <button id="register-plans-btn" class="btn">Register plans</button>
+  <div id="register-plans-status" style="margin-top:.5rem"></div>
+</div>
+
+<div class="card">
+  <h2>Environment (secrets masked)</h2>
   <table>
-    {% for k, v in cfg.items() %}
-      <tr><th>{{ k }}</th><td><code>{{ v }}</code></td></tr>
-    {% endfor %}
+    {% for k, v in cfg.items() %}<tr><th>{{ k }}</th><td><code>{{ v }}</code></td></tr>{% endfor %}
   </table>
 </div>
+
 <div class="card">
-  <h3>Plans</h3>
+  <h2>Plans</h2>
   <table>
     <thead><tr><th>Tier</th><th>Name</th><th>Price</th><th>Plan ID</th></tr></thead>
     <tbody>
-      {% for t, p in plans.items() %}
-        <tr><td>{{ t }}</td><td>{{ p.name }}</td><td>{{ p.price }}</td>
-            <td>{% if p.plan_id %}<code>{{ p.plan_id }}</code>{% else %}<em>not configured</em>{% endif %}</td></tr>
-      {% endfor %}
+    {% for t, p in plans.items() %}
+      <tr><td>{{ t }}</td><td>{{ p.name }}</td><td>{{ p.price }}</td>
+          <td>{% if p.plan_id %}<code>{{ p.plan_id }}</code>{% else %}<em>not configured</em>{% endif %}</td></tr>
+    {% endfor %}
     </tbody>
   </table>
 </div>
+
 <div class="card">
-  <h3>Port scan</h3>
+  <h2>Port scan</h2>
   <p>Hosts: <code>{{ scan_hosts | join(', ') }}</code><br>Ports: <code>{{ scan_ports | join(', ') }}</code></p>
   <button class="btn" id="scan-btn">Scan now</button>
   <div id="scan-status" style="margin-top:.5rem;color:#94a3b8"></div>
@@ -34,34 +74,75 @@
     <tbody></tbody>
   </table>
 </div>
+
 <script>
 (function () {
+  function setStatus(id, msg, ok) {
+    var el = document.getElementById(id);
+    el.textContent = msg;
+    el.style.color = ok ? '#34d399' : '#f87171';
+  }
+
+  document.getElementById('config-form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var data = {};
+    new FormData(this).forEach(function (v, k) { data[k] = v; });
+    setStatus('config-status', 'Saving…', true);
+    fetch('/setup/config', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)})
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (j.ok) { setStatus('config-status', 'Saved. Reloading…', true); setTimeout(function () { location.reload(); }, 500); }
+        else setStatus('config-status', 'Failed: ' + (j.error || 'unknown'), false);
+      })
+      .catch(function (e) { setStatus('config-status', 'Error: ' + e.message, false); });
+  });
+
+  document.getElementById('asset-form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var fd = new FormData(this);
+    setStatus('asset-status', 'Uploading…', true);
+    fetch('/setup/asset', {method: 'POST', body: fd})
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (j.ok) { setStatus('asset-status', 'Uploaded. Reloading…', true); setTimeout(function () { location.reload(); }, 500); }
+        else setStatus('asset-status', 'Failed: ' + (j.error || 'unknown'), false);
+      })
+      .catch(function (e) { setStatus('asset-status', 'Error: ' + e.message, false); });
+  });
+
+  document.getElementById('register-plans-btn').addEventListener('click', function () {
+    var s = document.getElementById('register-plans-status');
+    s.textContent = 'Registering…';
+    fetch('/setup/register-plans', {method: 'POST'})
+      .then(function (r) { return r.json().then(function (j) { return {status: r.status, body: j}; }); })
+      .then(function (x) {
+        if (x.body.ok) s.innerHTML = 'Registered: basic=<code>' + x.body.plan_id_basic + '</code>, pro=<code>' + x.body.plan_id_pro + '</code>';
+        else s.textContent = 'Failed (' + x.status + '): ' + (x.body.error || 'unknown');
+      })
+      .catch(function (e) { s.textContent = 'Error: ' + e.message; });
+  });
+
   document.getElementById('scan-btn').addEventListener('click', function () {
     var status = document.getElementById('scan-status');
     var table = document.getElementById('scan-table');
     var tbody = table.querySelector('tbody');
-    status.textContent = 'Scanning… (~1-5s)';
+    status.textContent = 'Scanning…';
     tbody.innerHTML = '';
     fetch('/api/ports/scan', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({hosts: {{ scan_hosts | tojson }}, ports: {{ scan_ports | tojson }}})
     })
     .then(function (r) { return r.json(); })
     .then(function (j) {
       table.style.display = 'table';
-      status.textContent = 'Scanned ' + j.results.length + ' endpoints at ' +
-        new Date(j.scanned_at * 1000).toLocaleTimeString();
+      status.textContent = 'Scanned ' + j.results.length + ' endpoints at ' + new Date(j.scanned_at * 1000).toLocaleTimeString();
       j.results.forEach(function (r) {
         var tr = document.createElement('tr');
         var detail = '';
         if (r.payload) detail = 'status=healthy, brand=' + (r.payload.brand || '?');
         else if (r.http) detail = JSON.stringify(r.http).slice(0, 160);
         else if (r.http_health) detail = 'health: ' + JSON.stringify(r.http_health).slice(0, 160);
-        tr.innerHTML = '<td><code>' + r.host + ':' + r.port + '</code></td>' +
-                       '<td>' + r.state + '</td>' +
-                       '<td>' + (r.identity || '—') + '</td>' +
-                       '<td>' + detail + '</td>';
+        tr.innerHTML = '<td><code>' + r.host + ':' + r.port + '</code></td><td>' + r.state + '</td><td>' + (r.identity || '—') + '</td><td>' + detail + '</td>';
         tbody.appendChild(tr);
       });
     })

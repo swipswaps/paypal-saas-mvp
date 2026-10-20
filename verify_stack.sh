@@ -47,7 +47,23 @@ curl -s -i -H 'Origin: https://swipswaps.github.io' "$BASE/health" | grep -i 'ac
 
 echo ""
 echo "==> Running extended_test.sh (override BASE if needed):"
-BASE_OVERRIDE="$BASE" bash extended_test.sh
+BASE_OVERRIDE="$BASE" 
+# ==== readiness gate ====
+READY=0
+for _w in $(seq 1 30); do
+  _c=$(curl -s -o /tmp/_vs_h -w '%{http_code}' http://localhost:5000/health)
+  echo "  readiness probe $_w: HTTP $_c"
+  if [ "$_c" = "200" ]; then READY=1; break; fi
+  sleep 2
+done
+rm -f /tmp/_vs_h
+if [ "$READY" -ne 1 ]; then
+  echo "ERROR: backend did not become ready in 60s"
+  docker compose logs --tail=40 web
+  exit 2
+fi
+
+bash extended_test.sh
 
 echo ""
 echo "==> /setup reachable:"

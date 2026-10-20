@@ -15,44 +15,72 @@ load_dotenv()
 app = Flask(__name__)
 _secret = os.getenv("SECRET_KEY", "")
 if not _secret or _secret == "replace-with-a-long-random-string":
-    print("WARNING: SECRET_KEY is not set or is the placeholder value.", flush=True)
+    print("WARNING: SECRET_KEY not set or placeholder", flush=True)
     _secret = os.urandom(32).hex()
 app.secret_key = _secret
 
-CLIENT_ID     = os.getenv("PAYPAL_CLIENT_ID")
+CLIENT_ID = os.getenv("PAYPAL_CLIENT_ID")
 CLIENT_SECRET = os.getenv("PAYPAL_CLIENT_SECRET")
-WEBHOOK_ID    = os.getenv("WEBHOOK_ID")
-BASE_URL      = os.getenv("BASE_URL", "http://localhost:5000").rstrip("/")
-API_BASE      = os.getenv("PAYPAL_API_BASE", "https://api-m.sandbox.paypal.com")
-PORT          = int(os.getenv("PORT", "5000"))
-HOST          = os.getenv("HOST", "0.0.0.0")
+WEBHOOK_ID = os.getenv("WEBHOOK_ID")
+BASE_URL = os.getenv("BASE_URL", "http://localhost:5000").rstrip("/")
+API_BASE = os.getenv("PAYPAL_API_BASE", "https://api-m.sandbox.paypal.com")
+PORT = int(os.getenv("PORT", "5000"))
+HOST = os.getenv("HOST", "0.0.0.0")
 CORS_PAGES_ORIGIN = os.getenv("CORS_PAGES_ORIGIN", "https://swipswaps.github.io")
 SETUP_REQUIRES_LOGIN = os.getenv("SETUP_REQUIRES_LOGIN", "0") == "1"
 SCAN_TIMEOUT = float(os.getenv("SCAN_TIMEOUT", "0.35"))
-SCAN_HOSTS = [h.strip() for h in os.getenv(
-    "SCAN_HOSTS", "localhost,host.docker.internal,172.17.0.1").split(",") if h.strip()]
+SCAN_HOSTS = [h.strip() for h in os.getenv("SCAN_HOSTS", "host.docker.internal,172.17.0.1").split(",") if h.strip()]
 _default_ports = [5000, 5001, 5002, 8000, 8080, 3000]
 if PORT not in _default_ports:
     _default_ports.append(PORT)
-SCAN_PORTS_ENV = os.getenv("SCAN_PORTS", "").strip()
-SCAN_PORTS = (
-    [int(p) for p in SCAN_PORTS_ENV.split(",") if p.strip().isdigit()]
-    if SCAN_PORTS_ENV else _default_ports
-)
+_sp_env = os.getenv("SCAN_PORTS", "").strip()
+SCAN_PORTS = [int(p) for p in _sp_env.split(",") if p.strip().isdigit()] if _sp_env else _default_ports
+
+CONFIG_PATH = "config/brand.json"
+STATIC_BRAND_DIR = os.path.join("static", "brand")
+
+def _read_cfg():
+    try:
+        with open(CONFIG_PATH) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def _write_cfg(cfg):
+    d = os.path.dirname(CONFIG_PATH) or "."
+    os.makedirs(d, exist_ok=True)
+    with open(CONFIG_PATH, "w") as f:
+        json.dump(cfg, f, indent=2)
+
+def _brand():
+    c = _read_cfg()
+    return {
+        "name": c.get("brand_name") or os.getenv("BRAND_NAME", "Demo SaaS"),
+        "tagline": c.get("brand_tagline") or os.getenv("BRAND_TAGLINE",
+            "Sandbox subscription billing with PayPal Server SDK and Flask."),
+        "logo": c.get("logo_path"),
+        "symbol": c.get("currency_symbol") or os.getenv("CURRENCY_SYMBOL", "$"),
+    }
+
+def _plans():
+    c = _read_cfg()
+    return {
+        "basic": {
+            "name": c.get("tier_basic_name") or os.getenv("TIER_BASIC_NAME", "Basic Tier"),
+            "price": c.get("tier_basic_price") or os.getenv("TIER_BASIC_PRICE", "9.99"),
+            "plan_id": c.get("plan_id_basic") or os.getenv("PLAN_ID_BASIC"),
+        },
+        "pro": {
+            "name": c.get("tier_pro_name") or os.getenv("TIER_PRO_NAME", "Pro Tier"),
+            "price": c.get("tier_pro_price") or os.getenv("TIER_PRO_PRICE", "29.99"),
+            "plan_id": c.get("plan_id_pro") or os.getenv("PLAN_ID_PRO"),
+        },
+    }
 
 paypal = PaypalServersdkClient(
     client_credentials_auth_credentials=ClientCredentialsAuthCredentials(
         o_auth_client_id=CLIENT_ID, o_auth_client_secret=CLIENT_SECRET),
     environment=Environment.SANDBOX)
-
-PLANS = {
-    "basic": {"name": os.getenv("TIER_BASIC_NAME", "Basic Tier"),
-              "price": os.getenv("TIER_BASIC_PRICE", "9.99"),
-              "plan_id": os.getenv("PLAN_ID_BASIC")},
-    "pro":   {"name": os.getenv("TIER_PRO_NAME", "Pro Tier"),
-              "price": os.getenv("TIER_PRO_PRICE", "29.99"),
-              "plan_id": os.getenv("PLAN_ID_PRO")},
-}
 
 DB_NAME = "saas_shop.db"
 
@@ -83,11 +111,12 @@ init_db()
 
 @app.context_processor
 def inject_brand():
+    b = _brand()
     return {
-        "BRAND_NAME": os.getenv("BRAND_NAME", "Demo SaaS"),
-        "BRAND_TAGLINE": os.getenv("BRAND_TAGLINE",
-            "Sandbox subscription billing with PayPal Server SDK and Flask."),
-        "CURRENCY_SYMBOL": os.getenv("CURRENCY_SYMBOL", "$"),
+        "BRAND_NAME": b["name"],
+        "BRAND_TAGLINE": b["tagline"],
+        "BRAND_LOGO": b["logo"],
+        "CURRENCY_SYMBOL": b["symbol"],
     }
 
 @app.after_request
@@ -106,23 +135,20 @@ def current_user():
 
 def _mask(s):
     if not s or s == "replace-with-a-long-random-string" or s.startswith("your_"):
-        return "⚠ not configured"
-    if len(s) <= 8: return "•" * len(s)
-    return s[:4] + "…" + s[-4:]
+        return "not configured"
+    if len(s) <= 8: return "*" * len(s)
+    return s[:4] + "..." + s[-4:]
 
 def _tcp_open(host, port, timeout):
     try:
-        with socket.create_connection((host, port), timeout=timeout):
-            return True
+        with socket.create_connection((host, port), timeout=timeout): return True
     except Exception:
         return False
 
 def _http_probe(host, port, path, timeout=0.6):
-    url = f"http://{host}:{port}{path}"
     try:
-        r = requests.get(url, timeout=timeout, allow_redirects=False)
-        return {"status": r.status_code,
-                "server": r.headers.get("Server", ""),
+        r = requests.get(f"http://{host}:{port}{path}", timeout=timeout, allow_redirects=False)
+        return {"status": r.status_code, "server": r.headers.get("Server", ""),
                 "content_type": r.headers.get("Content-Type", ""),
                 "body_snippet": (r.text[:300] if r.text else "").replace("\n", " ")}
     except requests.exceptions.RequestException as e:
@@ -132,7 +158,7 @@ def _identify(host, port):
     if not _tcp_open(host, port, SCAN_TIMEOUT):
         return {"state": "closed"}
     health = _http_probe(host, port, "/health")
-    if 'status' in health and '"status":"healthy"' in health.get("body_snippet", ""):
+    if "status" in health and '"status":"healthy"' in health.get("body_snippet", ""):
         payload = None
         try: payload = json.loads(health["body_snippet"])
         except Exception: pass
@@ -141,31 +167,21 @@ def _identify(host, port):
     root = _http_probe(host, port, "/")
     server = (root.get("server") or "").lower()
     body = (root.get("body_snippet") or "").lower()
-    if "werkzeug" in server:
-        identity = "flask (werkzeug)"
-    elif "simplehttp" in server or "simplehttpserver" in server or "directory listing for" in body:
-        identity = "python http.server"
-    elif "nginx" in server:
-        identity = "nginx"
-    elif "apache" in server:
-        identity = "apache"
-    elif "uvicorn" in server:
-        identity = "uvicorn (fastapi)"
-    elif "airtunes" in server or "airport" in server or "airplay" in server:
-        identity = "airplay receiver"
-    elif "docker" in body and root.get("status") in (200, 401):
-        identity = "docker registry"
-    elif root.get("status") == 403:
-        identity = "http 403 (auth wall or forbidden)"
-    elif root.get("status"):
-        identity = f"http {root['status']} (unknown)"
-    else:
-        identity = "tcp open, no http response"
+    if "werkzeug" in server: identity = "flask (werkzeug)"
+    elif "simplehttp" in server or "directory listing for" in body: identity = "python http.server"
+    elif "nginx" in server: identity = "nginx"
+    elif "apache" in server: identity = "apache"
+    elif "uvicorn" in server: identity = "uvicorn (fastapi)"
+    elif "airtunes" in server or "airport" in server: identity = "airplay receiver"
+    elif "docker" in body and root.get("status") in (200, 401): identity = "docker registry"
+    elif root.get("status") == 403: identity = "http 403 (auth wall)"
+    elif root.get("status"): identity = f"http {root['status']} (unknown)"
+    else: identity = "tcp open, no http response"
     return {"state": "open", "identity": identity, "http": root}
 
 @app.route("/")
 def index():
-    return render_template("index.html", user=current_user(), plans=PLANS)
+    return render_template("index.html", user=current_user(), plans=_plans())
 
 @app.route("/setup")
 def setup_page():
@@ -175,8 +191,8 @@ def setup_page():
         "BRAND_NAME": os.getenv("BRAND_NAME", "Demo SaaS"),
         "PORT": os.getenv("PORT", "5000"),
         "HOST": os.getenv("HOST", "0.0.0.0"),
-        "BASE_URL": os.getenv("BASE_URL", "⚠ not configured"),
-        "PAYPAL_API_BASE": os.getenv("PAYPAL_API_BASE", ""),
+        "BASE_URL": os.getenv("BASE_URL", "not configured"),
+        "PAYPAL_API_BASE": API_BASE,
         "PAYPAL_CLIENT_ID": _mask(os.getenv("PAYPAL_CLIENT_ID", "")),
         "PAYPAL_CLIENT_SECRET": _mask(os.getenv("PAYPAL_CLIENT_SECRET", "")),
         "SECRET_KEY": _mask(os.getenv("SECRET_KEY", "")),
@@ -184,8 +200,90 @@ def setup_page():
         "CORS_PAGES_ORIGIN": CORS_PAGES_ORIGIN,
         "SETUP_REQUIRES_LOGIN": str(SETUP_REQUIRES_LOGIN),
     }
-    return render_template("setup.html", brand=cfg["BRAND_NAME"], cfg=cfg,
-                           plans=PLANS, scan_hosts=SCAN_HOSTS, scan_ports=SCAN_PORTS)
+    return render_template("setup.html",
+        brand=_brand()["name"], cfg=cfg, plans=_plans(),
+        current_brand=_brand(), scan_hosts=SCAN_HOSTS, scan_ports=SCAN_PORTS)
+
+@app.route("/setup/config", methods=["POST"])
+def setup_config():
+    data = request.get_json(silent=True) or request.form.to_dict()
+    cfg = _read_cfg()
+    for src, dst in [
+        ("brand_name","brand_name"),("BRAND_NAME","brand_name"),
+        ("brand_tagline","brand_tagline"),("BRAND_TAGLINE","brand_tagline"),
+        ("tier_basic_name","tier_basic_name"),("TIER_BASIC_NAME","tier_basic_name"),
+        ("tier_basic_price","tier_basic_price"),("TIER_BASIC_PRICE","tier_basic_price"),
+        ("basic_price","tier_basic_price"),
+        ("tier_pro_name","tier_pro_name"),("TIER_PRO_NAME","tier_pro_name"),
+        ("tier_pro_price","tier_pro_price"),("TIER_PRO_PRICE","tier_pro_price"),
+        ("pro_price","tier_pro_price"),
+        ("currency_code","currency_code"),("CURRENCY_CODE","currency_code"),
+        ("currency_symbol","currency_symbol"),("CURRENCY_SYMBOL","currency_symbol"),
+        ("billing_interval","billing_interval"),("BILLING_INTERVAL","billing_interval"),
+    ]:
+        v = data.get(src)
+        if v is not None and str(v).strip():
+            cfg[dst] = str(v).strip()
+    _write_cfg(cfg)
+    return jsonify({"ok": True, "config": cfg})
+
+@app.route("/setup/asset", methods=["POST"])
+def setup_asset():
+    js = request.get_json(silent=True) or {}
+    kind = (request.form.get("kind") or request.args.get("kind") or js.get("kind") or "").strip()
+    if kind not in ("logo", "favicon"):
+        return jsonify({"ok": False, "error": f"unknown kind: {kind!r}"}), 400
+    f = None
+    for field in ("file", "logo", "asset", "upload"):
+        f = request.files.get(field)
+        if f: break
+    if not f or not f.filename:
+        return jsonify({"ok": False, "error": "no file"}), 400
+    ext = f.filename.rsplit(".", 1)[-1].lower() if "." in f.filename else ""
+    allowed = {"logo": {"svg","png","jpg","jpeg","webp"}, "favicon": {"ico","png","svg"}}
+    if ext not in allowed[kind]:
+        return jsonify({"ok": False, "error": f"extension .{ext} not allowed for {kind}"}), 400
+    os.makedirs(STATIC_BRAND_DIR, exist_ok=True)
+    dest_name = f"{kind}.{ext}"
+    f.save(os.path.join(STATIC_BRAND_DIR, dest_name))
+    cfg = _read_cfg()
+    cfg[f"{kind}_path"] = f"brand/{dest_name}"
+    _write_cfg(cfg)
+    return jsonify({"ok": True, "path": f"/static/brand/{dest_name}", "filename": dest_name})
+
+def _creds_ok():
+    cid = CLIENT_ID or ""
+    cs = CLIENT_SECRET or ""
+    if not cid or not cs: return False
+    if cid.startswith("your_") or cs.startswith("your_"): return False
+    if "your_sandbox" in cid or "your_sandbox" in cs: return False
+    return True
+
+@app.route("/setup/register-plans", methods=["POST"])
+def setup_register_plans():
+    if not _creds_ok():
+        return jsonify({"ok": False, "error": "PayPal credentials not configured in .env (placeholders detected)"}), 400
+    try:
+        from setup_plans import register_plans
+        c = _read_cfg()
+        result = register_plans(
+            CLIENT_ID, CLIENT_SECRET, API_BASE,
+            c.get("brand_name") or os.getenv("BRAND_NAME", "Demo SaaS"),
+            c.get("brand_tagline") or os.getenv("BRAND_TAGLINE", "Subscription service"),
+            c.get("tier_basic_name") or os.getenv("TIER_BASIC_NAME", "Basic Tier"),
+            c.get("tier_basic_price") or os.getenv("TIER_BASIC_PRICE", "9.99"),
+            c.get("tier_pro_name") or os.getenv("TIER_PRO_NAME", "Pro Tier"),
+            c.get("tier_pro_price") or os.getenv("TIER_PRO_PRICE", "29.99"),
+            c.get("currency_code") or os.getenv("CURRENCY_CODE", "USD"),
+            c.get("billing_interval") or os.getenv("BILLING_INTERVAL", "MONTH"))
+        cfg = _read_cfg()
+        cfg["plan_id_basic"] = result["plan_id_basic"]
+        cfg["plan_id_pro"] = result["plan_id_pro"]
+        cfg["product_id"] = result["product_id"]
+        _write_cfg(cfg)
+        return jsonify({"ok": True, **result})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 502
 
 @app.route("/api/ports/scan", methods=["OPTIONS"])
 def api_ports_scan_options():
@@ -241,7 +339,7 @@ def logout():
 def dashboard():
     user = current_user()
     if not user: return redirect(url_for("login"))
-    return render_template("dashboard.html", user=user, plans=PLANS)
+    return render_template("dashboard.html", user=user, plans=_plans())
 
 @app.route("/premium")
 def premium():
@@ -253,15 +351,16 @@ def premium():
 @app.route("/subscribe/<tier>")
 def subscribe(tier):
     user = current_user()
-    if not user or tier not in PLANS: return redirect(url_for("login"))
-    plan_id = PLANS[tier]["plan_id"]
+    plans = _plans()
+    if not user or tier not in plans: return redirect(url_for("login"))
+    plan_id = plans[tier]["plan_id"]
     if not plan_id:
-        return "PLAN_ID not configured. Run setup_plans.py and update .env.", 500
+        return "PLAN_ID not configured. Run setup_plans.py or use /setup to register plans.", 500
     from paypalserversdk.models.create_subscription_request import CreateSubscriptionRequest
     from paypalserversdk.models.subscription_application_context import SubscriptionApplicationContext
     req = CreateSubscriptionRequest(plan_id=plan_id, custom_id=str(user["id"]),
         application_context=SubscriptionApplicationContext(
-            brand_name=os.getenv("BRAND_NAME", "Demo SaaS"),
+            brand_name=_brand()["name"],
             return_url=f"{BASE_URL}/subscription/success",
             cancel_url=f"{BASE_URL}/dashboard",
             user_action="SUBSCRIBE_NOW"))
@@ -285,7 +384,7 @@ def cancel_subscription():
         app.logger.error("Cancel error: %s", e)
     return redirect(url_for("dashboard"))
 
-def verify_webhook(raw: bytes, headers) -> bool:
+def verify_webhook(raw, headers):
     tid   = headers.get("PAYPAL-TRANSMISSION-ID")
     ttime = headers.get("PAYPAL-TRANSMISSION-TIME")
     cert  = headers.get("PAYPAL-CERT-URL")
@@ -313,9 +412,10 @@ def webhook():
     db = get_db()
     db.execute("INSERT INTO webhook_events (event_type,resource_id,payload) VALUES (?,?,?)",
                (etype, sid, raw.decode("utf-8"))); db.commit()
+    plans = _plans()
     if etype == "BILLING.SUBSCRIPTION.ACTIVATED":
         plan_id = res.get("plan_id")
-        tier = next((t for t, p in PLANS.items() if p["plan_id"] == plan_id), "free")
+        tier = next((t for t, p in plans.items() if p["plan_id"] == plan_id), "free")
         if not uid and sid:
             row = db.execute("SELECT id FROM users WHERE subscription_id=?", (sid,)).fetchone()
             uid = row["id"] if row else None
@@ -339,14 +439,8 @@ def view_events():
 
 @app.route("/health")
 def health():
-    return jsonify({"status": "healthy", "brand": os.getenv("BRAND_NAME", "Demo SaaS")})
+    return jsonify({"status": "healthy", "brand": _brand()["name"]})
 
 if __name__ == "__main__":
-    print(f"Starting {os.getenv('BRAND_NAME','Demo SaaS')} on {HOST}:{PORT}", flush=True)
-    print(f"Port scan on startup ({len(SCAN_HOSTS)*len(SCAN_PORTS)} probes):", flush=True)
-    for h in SCAN_HOSTS:
-        for p in SCAN_PORTS:
-            r = _identify(h, p)
-            label = r.get("identity") or r.get("state")
-            print(f"  {h}:{p} -> {label}", flush=True)
+    print(f"Starting {_brand()['name']} on {HOST}:{PORT}", flush=True)
     app.run(host=HOST, port=PORT, debug=False)

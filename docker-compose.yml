@@ -7,9 +7,13 @@ services:
     environment:
       - PORT=${PORT:-5000}
       - HOST=0.0.0.0
-      - SCAN_HOSTS=${SCAN_HOSTS:-localhost,host.docker.internal}
+      - SCAN_HOSTS=${SCAN_HOSTS:-host.docker.internal,172.17.0.1}
       - SCAN_PORTS=${SCAN_PORTS:-5000,5001,5002,8000,8080,3000}
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    volumes:
+      - ./saas_shop.db:/app/saas_shop.db
+      - ./config:/app/config
+      - ./static:/app/static
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    volumes: ["./saas_shop.db:/app/saas_shop.db"]
     restart: unless-stopped
