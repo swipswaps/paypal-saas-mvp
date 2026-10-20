@@ -100,6 +100,22 @@ else
 fi
 
 echo ""
+echo "==> 9b. /setup/secrets"
+CODE=$(curl -s -o "$BODY" -w '%{http_code}' "$BASE/setup/secrets")
+check "/setup/secrets GET -> 200" "200" "$CODE"
+gcheck "/setup/secrets has locked flag" '"locked"' "$BODY"
+
+CODE=$(curl -s -o "$BODY" -w '%{http_code}' -X POST "$BASE/setup/secrets" \
+  -H 'Content-Type: application/json' \
+  -d '{"paypal_client_id":"your_sandbox_client_id_here","paypal_client_secret":"your_sandbox_client_secret_here"}')
+check "/setup/secrets rejects placeholders -> 400" "400" "$CODE"
+
+CODE=$(curl -s -o "$BODY" -w '%{http_code}' -X POST "$BASE/setup/secrets" \
+  -H 'Content-Type: application/json' \
+  -d '{"paypal_client_id":"","paypal_client_secret":""}')
+check "/setup/secrets rejects empty -> 400" "400" "$CODE"
+
+echo ""
 echo "==> 10. restore original brand.json"
 RESTORE_OK=0
 if cp "$SNAPSHOT" config/brand.json 2>&1; then

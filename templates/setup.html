@@ -5,6 +5,58 @@
   in <code>.env</code> to require login.</p>
 </div>
 
+{% if not creds_ok %}
+<div class="card" style="border-left:4px solid #fbbf24;background:#2a2416">
+  <h2 style="color:#fbbf24">PayPal credentials missing</h2>
+  <p>The app will run, but <code>/subscribe</code> and <code>/setup/register-plans</code> are disabled
+  until Client ID and Client Secret are set.</p>
+</div>
+{% endif %}
+
+<div class="card">
+  <h2>PayPal credentials</h2>
+  {% if creds_locked %}
+    <p><strong>Locked to <code>.env</code></strong> (<code>CREDS_FROM_ENV_ONLY=1</code>).
+    The UI form is disabled. Edit <code>.env</code> and restart to change.</p>
+    <table>
+      <tr><th>Client ID</th><td><code>{{ creds_hint.client_id }}</code></td></tr>
+      <tr><th>Client Secret</th><td><code>{{ creds_hint.client_secret }}</code></td></tr>
+      <tr><th>Webhook ID</th><td><code>{{ creds_hint.webhook_id }}</code></td></tr>
+      <tr><th>SECRET_KEY</th><td><code>{{ creds_hint.secret_key }}</code></td></tr>
+    </table>
+  {% else %}
+    <p>Values are validated by calling PayPal OAuth, then saved to
+    <code>config/secrets.json</code> with mode <code>0600</code>.</p>
+    <p class="muted" style="font-size:.85rem">
+      Rate limited to 5 save/test attempts per minute per IP.
+      No CSRF token yet &mdash; use <code>SETUP_REQUIRES_LOGIN=1</code> if this instance is exposed.
+    </p>
+    <table style="margin-bottom:1rem">
+      <tr><th>Client ID</th><td><code>{{ creds_hint.client_id }}</code></td></tr>
+      <tr><th>Client Secret</th><td><code>{{ creds_hint.client_secret }}</code></td></tr>
+      <tr><th>Webhook ID</th><td><code>{{ creds_hint.webhook_id }}</code></td></tr>
+      <tr><th>SECRET_KEY</th><td><code>{{ creds_hint.secret_key }}</code></td></tr>
+    </table>
+    <form id="creds-form">
+      <label>PayPal Client ID
+        <input type="text" name="paypal_client_id" placeholder="AX..." autocomplete="off">
+      </label>
+      <label>PayPal Client Secret
+        <input type="password" name="paypal_client_secret" placeholder="EL..." autocomplete="new-password">
+      </label>
+      <label>Webhook ID (optional; needed for webhook verification)
+        <input type="text" name="webhook_id" autocomplete="off">
+      </label>
+      <label>Flask SECRET_KEY (optional; changing it invalidates all sessions)
+        <input type="password" name="secret_key" autocomplete="new-password">
+      </label>
+      <button type="submit" class="btn">Save and validate</button>
+      <button type="button" class="btn secondary" id="creds-test">Test without saving</button>
+      <span id="creds-msg" style="margin-left:.5rem"></span>
+    </form>
+  {% endif %}
+</div>
+
 <div class="card">
   <h2>Brand configuration</h2>
   <p>Saved to <code>config/brand.json</code>. Overrides <code>.env</code> values.</p>
@@ -17,35 +69,39 @@
     <label>Pro price<input name="tier_pro_price" value="{{ plans.pro.price }}"></label>
     <label>Currency code<input name="currency_code" value="{{ current_brand.symbol }}"></label>
     <button type="submit" class="btn">Save configuration</button>
-    <span id="config-status"></span>
+    <span id="config-status" style="margin-left:.5rem"></span>
   </form>
 </div>
 
 <div class="card">
   <h2>Logo upload</h2>
   {% if current_brand.logo %}
-    <p>Current logo: <img src="{{ url_for('static', filename=current_brand.logo) }}" alt="logo" style="max-height:60px;vertical-align:middle"></p>
+    <p>Current logo:
+      <img src="{{ url_for('static', filename=current_brand.logo) }}" alt="logo"
+           style="max-height:60px;vertical-align:middle"></p>
   {% else %}
     <p>No logo yet.</p>
   {% endif %}
   <form id="asset-form" enctype="multipart/form-data">
     <input type="hidden" name="kind" value="logo">
-    <label>SVG, PNG, JPG, or WEBP<input type="file" name="file" accept=".svg,.png,.jpg,.jpeg,.webp"></label>
+    <label>SVG, PNG, JPG, or WEBP
+      <input type="file" name="file" accept=".svg,.png,.jpg,.jpeg,.webp">
+    </label>
     <button type="submit" class="btn">Upload logo</button>
-    <span id="asset-status"></span>
+    <span id="asset-status" style="margin-left:.5rem"></span>
   </form>
 </div>
 
 <div class="card">
   <h2>Register plans with PayPal</h2>
   <p>Registers the current brand and tier prices as PayPal billing plans.
-  Requires <code>PAYPAL_CLIENT_ID</code> and <code>PAYPAL_CLIENT_SECRET</code> in <code>.env</code>.</p>
+  Requires credentials above.</p>
   <button id="register-plans-btn" class="btn">Register plans</button>
   <div id="register-plans-status" style="margin-top:.5rem"></div>
 </div>
 
 <div class="card">
-  <h2>Environment (secrets masked)</h2>
+  <h2>Environment</h2>
   <table>
     {% for k, v in cfg.items() %}<tr><th>{{ k }}</th><td><code>{{ v }}</code></td></tr>{% endfor %}
   </table>
@@ -79,8 +135,54 @@
 (function () {
   function setStatus(id, msg, ok) {
     var el = document.getElementById(id);
+    if (!el) return;
     el.textContent = msg;
     el.style.color = ok ? '#34d399' : '#f87171';
+  }
+
+  var credsForm = document.getElementById('creds-form');
+  if (credsForm) {
+    credsForm.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var data = {};
+      new FormData(this).forEach(function (v, k) { data[k] = v; });
+      setStatus('creds-msg', 'Saving and validating…', true);
+      fetch('/setup/secrets', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+      })
+      .then(function (r) { return r.json().then(function (j) { return {s: r.status, b: j}; }); })
+      .then(function (x) {
+        if (x.b.ok) {
+          var msg = x.b.session_invalidated
+            ? 'Saved. SECRET_KEY changed — you have been logged out. Reloading…'
+            : 'Saved and validated by PayPal. Reloading…';
+          setStatus('creds-msg', msg, true);
+          setTimeout(function () { location.reload(); }, 700);
+        } else {
+          setStatus('creds-msg', 'Failed (' + x.s + '): ' + (x.b.error || 'unknown'), false);
+        }
+      })
+      .catch(function (e) { setStatus('creds-msg', 'Error: ' + e.message, false); });
+    });
+
+    document.getElementById('creds-test').addEventListener('click', function () {
+      var data = {};
+      new FormData(credsForm).forEach(function (v, k) { data[k] = v; });
+      setStatus('creds-msg', 'Testing…', true);
+      fetch('/setup/secrets/test', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+      })
+      .then(function (r) { return r.json().then(function (j) { return {s: r.status, b: j}; }); })
+      .then(function (x) {
+        if (x.b.ok) setStatus('creds-msg', 'Test OK (HTTP ' + x.b.status + ')', true);
+        else setStatus('creds-msg', 'Test failed (' + (x.b.status || x.s) + '): ' + (x.b.error || x.b.detail || 'unknown'), false);
+      })
+      .catch(function (e) { setStatus('creds-msg', 'Error: ' + e.message, false); });
+    });
   }
 
   document.getElementById('config-form').addEventListener('submit', function (e) {

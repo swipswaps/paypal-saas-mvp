@@ -1,4 +1,4 @@
-import os, json, sqlite3, zlib, base64, socket, time
+import os, json, sqlite3, zlib, base64, socket, time, sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from flask import Flask, g, render_template, redirect, request, session, url_for, jsonify
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -12,20 +12,63 @@ from paypalserversdk.configuration import Environment
 
 load_dotenv()
 
+# ---------- secrets helpers ----------
+SECRETS_PATH = "config/secrets.json"
+CREDS_FROM_ENV_ONLY = os.getenv("CREDS_FROM_ENV_ONLY", "0") == "1"
+
+def _is_placeholder(v):
+    if not v: return True
+    if v.startswith("your_") or v.startswith("replace-"): return True
+    if "your_sandbox" in v: return True
+    return False
+
+def _read_secrets():
+    try:
+        with open(SECRETS_PATH) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def _write_secrets(sec):
+    d = os.path.dirname(SECRETS_PATH) or "."
+    os.makedirs(d, mode=0o700, exist_ok=True)
+    tmp = SECRETS_PATH + ".tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(sec, f, indent=2)
+        os.replace(tmp, SECRETS_PATH)
+        try: os.chmod(SECRETS_PATH, 0o600)
+        except Exception: pass
+    except Exception:
+        try: os.unlink(tmp)
+        except Exception: pass
+        raise
+
+def _cred(name, default=""):
+    envv = os.getenv(name, "")
+    if envv and not _is_placeholder(envv):
+        return envv
+    sec = _read_secrets()
+    if sec.get(name):
+        return sec[name]
+    return envv or default
+
+# ---------- app + initial config ----------
 app = Flask(__name__)
-_secret = os.getenv("SECRET_KEY", "")
+_secret = _cred("SECRET_KEY")
 if not _secret or _secret == "replace-with-a-long-random-string":
-    print("WARNING: SECRET_KEY not set or placeholder", flush=True)
+    print("WARNING: SECRET_KEY not set; using ephemeral value", flush=True)
     _secret = os.urandom(32).hex()
 app.secret_key = _secret
 
-CLIENT_ID = os.getenv("PAYPAL_CLIENT_ID")
-CLIENT_SECRET = os.getenv("PAYPAL_CLIENT_SECRET")
-WEBHOOK_ID = os.getenv("WEBHOOK_ID")
-BASE_URL = os.getenv("BASE_URL", "http://localhost:5000").rstrip("/")
-API_BASE = os.getenv("PAYPAL_API_BASE", "https://api-m.sandbox.paypal.com")
-PORT = int(os.getenv("PORT", "5000"))
-HOST = os.getenv("HOST", "0.0.0.0")
+CLIENT_ID     = _cred("PAYPAL_CLIENT_ID")
+CLIENT_SECRET = _cred("PAYPAL_CLIENT_SECRET")
+WEBHOOK_ID    = _cred("WEBHOOK_ID")
+BASE_URL      = os.getenv("BASE_URL", "http://localhost:5000").rstrip("/")
+API_BASE      = os.getenv("PAYPAL_API_BASE", "https://api-m.sandbox.paypal.com")
+PORT          = int(os.getenv("PORT", "5000"))
+HOST          = os.getenv("HOST", "0.0.0.0")
 CORS_PAGES_ORIGIN = os.getenv("CORS_PAGES_ORIGIN", "https://swipswaps.github.io")
 SETUP_REQUIRES_LOGIN = os.getenv("SETUP_REQUIRES_LOGIN", "0") == "1"
 SCAN_TIMEOUT = float(os.getenv("SCAN_TIMEOUT", "0.35"))
@@ -77,10 +120,25 @@ def _plans():
         },
     }
 
-paypal = PaypalServersdkClient(
-    client_credentials_auth_credentials=ClientCredentialsAuthCredentials(
-        o_auth_client_id=CLIENT_ID, o_auth_client_secret=CLIENT_SECRET),
-    environment=Environment.SANDBOX)
+def _make_paypal():
+    return PaypalServersdkClient(
+        client_credentials_auth_credentials=ClientCredentialsAuthCredentials(
+            o_auth_client_id=CLIENT_ID, o_auth_client_secret=CLIENT_SECRET),
+        environment=Environment.SANDBOX)
+
+paypal = _make_paypal()
+
+def _reload_creds():
+    global CLIENT_ID, CLIENT_SECRET, WEBHOOK_ID, paypal
+    CLIENT_ID     = _cred("PAYPAL_CLIENT_ID")
+    CLIENT_SECRET = _cred("PAYPAL_CLIENT_SECRET")
+    WEBHOOK_ID    = _cred("WEBHOOK_ID")
+    paypal = _make_paypal()
+
+_oauth_attempts = {}
+
+def _creds_ok():
+    return (not _is_placeholder(CLIENT_ID)) and (not _is_placeholder(CLIENT_SECRET))
 
 DB_NAME = "saas_shop.db"
 
@@ -133,11 +191,14 @@ def current_user():
     if not uid: return None
     return get_db().execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()
 
-def _mask(s):
-    if not s or s == "replace-with-a-long-random-string" or s.startswith("your_"):
-        return "not configured"
-    if len(s) <= 8: return "*" * len(s)
+def _mask_id(s):
+    if not s or _is_placeholder(s): return "not configured"
+    if len(s) <= 8: return "set (short)"
     return s[:4] + "..." + s[-4:]
+
+def _mask_sec(s):
+    if not s or _is_placeholder(s): return "not configured"
+    return "set (" + str(len(s)) + " chars)"
 
 def _tcp_open(host, port, timeout):
     try:
@@ -193,17 +254,106 @@ def setup_page():
         "HOST": os.getenv("HOST", "0.0.0.0"),
         "BASE_URL": os.getenv("BASE_URL", "not configured"),
         "PAYPAL_API_BASE": API_BASE,
-        "PAYPAL_CLIENT_ID": _mask(os.getenv("PAYPAL_CLIENT_ID", "")),
-        "PAYPAL_CLIENT_SECRET": _mask(os.getenv("PAYPAL_CLIENT_SECRET", "")),
-        "SECRET_KEY": _mask(os.getenv("SECRET_KEY", "")),
-        "WEBHOOK_ID": _mask(os.getenv("WEBHOOK_ID", "")),
         "CORS_PAGES_ORIGIN": CORS_PAGES_ORIGIN,
         "SETUP_REQUIRES_LOGIN": str(SETUP_REQUIRES_LOGIN),
+        "CREDS_FROM_ENV_ONLY": str(CREDS_FROM_ENV_ONLY),
+    }
+    creds_hint = {
+        "client_id":     _mask_id(CLIENT_ID),
+        "client_secret": _mask_sec(CLIENT_SECRET),
+        "webhook_id":    _mask_sec(WEBHOOK_ID),
+        "secret_key":    _mask_sec(app.secret_key if isinstance(app.secret_key, str) else app.secret_key.hex() if isinstance(app.secret_key, bytes) else ""),
     }
     return render_template("setup.html",
         brand=_brand()["name"], cfg=cfg, plans=_plans(),
-        current_brand=_brand(), scan_hosts=SCAN_HOSTS, scan_ports=SCAN_PORTS)
+        current_brand=_brand(), scan_hosts=SCAN_HOSTS, scan_ports=SCAN_PORTS,
+        creds_ok=_creds_ok(), creds_locked=CREDS_FROM_ENV_ONLY, creds_hint=creds_hint)
 
+# ---------- secrets endpoints ----------
+@app.route("/setup/secrets", methods=["GET"])
+def setup_secrets_get():
+    return jsonify({
+        "locked": CREDS_FROM_ENV_ONLY,
+        "paypal_client_id_set": not _is_placeholder(CLIENT_ID),
+        "paypal_client_secret_set": not _is_placeholder(CLIENT_SECRET),
+        "webhook_id_set": not _is_placeholder(WEBHOOK_ID),
+        "secret_key_set": bool(app.secret_key),
+        "paypal_client_id_hint": _mask_id(CLIENT_ID),
+    })
+
+@app.route("/setup/secrets/test", methods=["POST"])
+def setup_secrets_test():
+    data = request.get_json(silent=True) or {}
+    cid = (data.get("paypal_client_id") or "").strip() or CLIENT_ID
+    cs  = (data.get("paypal_client_secret") or "").strip() or CLIENT_SECRET
+    if _is_placeholder(cid) or _is_placeholder(cs):
+        return jsonify({"ok": False, "error": "no credentials to test"}), 400
+    ip = request.remote_addr or "?"
+    now = time.time()
+    hits = [t for t in _oauth_attempts.get(ip, []) if now - t < 60]
+    if len(hits) >= 5:
+        return jsonify({"ok": False, "error": "rate limited (5/min)"}), 429
+    _oauth_attempts[ip] = hits + [now]
+    try:
+        r = requests.post(f"{API_BASE}/v1/oauth2/token",
+            auth=(cid, cs),
+            data={"grant_type": "client_credentials"}, timeout=15)
+        return jsonify({"ok": r.status_code == 200,
+                        "status": r.status_code,
+                        "detail": "OK" if r.status_code == 200 else r.text[:200]})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 502
+
+@app.route("/setup/secrets", methods=["POST"])
+def setup_secrets_post():
+    global paypal
+    if CREDS_FROM_ENV_ONLY:
+        return jsonify({"ok": False, "error": "CREDS_FROM_ENV_ONLY=1; use .env"}), 403
+    data = request.get_json(silent=True) or {}
+    cid = (data.get("paypal_client_id") or "").strip()
+    cs  = (data.get("paypal_client_secret") or "").strip()
+    wh  = (data.get("webhook_id") or "").strip()
+    sk  = (data.get("secret_key") or "").strip()
+
+    if not cid or not cs:
+        return jsonify({"ok": False, "error": "client_id and client_secret required"}), 400
+    if _is_placeholder(cid) or _is_placeholder(cs):
+        return jsonify({"ok": False, "error": "values look like placeholders"}), 400
+
+    ip = request.remote_addr or "?"
+    now = time.time()
+    hits = [t for t in _oauth_attempts.get(ip, []) if now - t < 60]
+    if len(hits) >= 5:
+        return jsonify({"ok": False, "error": "rate limited (5/min)"}), 429
+    _oauth_attempts[ip] = hits + [now]
+
+    try:
+        r = requests.post(f"{API_BASE}/v1/oauth2/token",
+            auth=(cid, cs),
+            data={"grant_type": "client_credentials"}, timeout=15)
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"PayPal OAuth failed: {e}"}), 502
+    if r.status_code != 200:
+        return jsonify({"ok": False,
+                        "error": f"PayPal OAuth {r.status_code}",
+                        "detail": r.text[:200]}), 400
+
+    sec = _read_secrets()
+    sec["PAYPAL_CLIENT_ID"] = cid
+    sec["PAYPAL_CLIENT_SECRET"] = cs
+    if wh: sec["WEBHOOK_ID"] = wh
+    if sk: sec["SECRET_KEY"] = sk
+    try:
+        _write_secrets(sec)
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"save failed: {e}"}), 500
+
+    _reload_creds()
+    if sk:
+        app.secret_key = sk
+    return jsonify({"ok": True, "validated": True, "session_invalidated": bool(sk)})
+
+# ---------- brand/asset endpoints ----------
 @app.route("/setup/config", methods=["POST"])
 def setup_config():
     data = request.get_json(silent=True) or request.form.to_dict()
@@ -251,18 +401,10 @@ def setup_asset():
     _write_cfg(cfg)
     return jsonify({"ok": True, "path": f"/static/brand/{dest_name}", "filename": dest_name})
 
-def _creds_ok():
-    cid = CLIENT_ID or ""
-    cs = CLIENT_SECRET or ""
-    if not cid or not cs: return False
-    if cid.startswith("your_") or cs.startswith("your_"): return False
-    if "your_sandbox" in cid or "your_sandbox" in cs: return False
-    return True
-
 @app.route("/setup/register-plans", methods=["POST"])
 def setup_register_plans():
     if not _creds_ok():
-        return jsonify({"ok": False, "error": "PayPal credentials not configured in .env (placeholders detected)"}), 400
+        return jsonify({"ok": False, "error": "PayPal credentials not configured (placeholders detected)"}), 400
     try:
         from setup_plans import register_plans
         c = _read_cfg()
@@ -309,6 +451,7 @@ def api_ports_scan():
     results.sort(key=lambda r: (r["host"], r["port"]))
     return jsonify({"scanned_at": int(time.time()), "results": results})
 
+# ---------- auth & app routes ----------
 @app.route("/register", methods=["GET", "POST"])
 def register():
     if request.method == "POST":
@@ -355,7 +498,7 @@ def subscribe(tier):
     if not user or tier not in plans: return redirect(url_for("login"))
     plan_id = plans[tier]["plan_id"]
     if not plan_id:
-        return "PLAN_ID not configured. Run setup_plans.py or use /setup to register plans.", 500
+        return "PLAN_ID not configured. Use /setup to register plans.", 500
     from paypalserversdk.models.create_subscription_request import CreateSubscriptionRequest
     from paypalserversdk.models.subscription_application_context import SubscriptionApplicationContext
     req = CreateSubscriptionRequest(plan_id=plan_id, custom_id=str(user["id"]),
@@ -439,8 +582,56 @@ def view_events():
 
 @app.route("/health")
 def health():
-    return jsonify({"status": "healthy", "brand": _brand()["name"]})
+    return jsonify({"status": "healthy", "brand": _brand()["name"],
+                    "creds_configured": _creds_ok()})
+
+def _cli_prompt_creds():
+    if not sys.stdin.isatty():
+        print("PayPal credentials not set; skipping interactive prompt (stdin not a TTY).", flush=True)
+        print("Configure at /setup in the browser.", flush=True)
+        return
+    if _creds_ok():
+        return
+    print("", flush=True)
+    print("PayPal credentials are not configured.", flush=True)
+    print("Enter them now (validated against PayPal), or use /setup in the browser.", flush=True)
+    try:
+        ans = input("Prompt now? [y/N] ").strip().lower()
+    except EOFError:
+        return
+    if ans != "y":
+        return
+    import getpass
+    try:
+        cid = input("PayPal Client ID: ").strip()
+        cs = getpass.getpass("PayPal Client Secret: ")
+    except (EOFError, KeyboardInterrupt):
+        print("Aborted; continuing without creds.", flush=True)
+        return
+    if not cid or not cs:
+        print("Empty input; continuing without creds.", flush=True)
+        return
+    try:
+        r = requests.post(f"{API_BASE}/v1/oauth2/token",
+            auth=(cid, cs),
+            data={"grant_type": "client_credentials"}, timeout=15)
+    except Exception as e:
+        print(f"Validation failed: {e}. Continuing without creds.", flush=True)
+        return
+    if r.status_code == 200:
+        sec = _read_secrets()
+        sec["PAYPAL_CLIENT_ID"] = cid
+        sec["PAYPAL_CLIENT_SECRET"] = cs
+        try:
+            _write_secrets(sec)
+            _reload_creds()
+            print("Saved to config/secrets.json (mode 0600).", flush=True)
+        except Exception as e:
+            print(f"Save failed: {e}. Continuing without persisting.", flush=True)
+    else:
+        print(f"Validation failed: HTTP {r.status_code}. Continuing without creds.", flush=True)
 
 if __name__ == "__main__":
     print(f"Starting {_brand()['name']} on {HOST}:{PORT}", flush=True)
+    _cli_prompt_creds()
     app.run(host=HOST, port=PORT, debug=False)
