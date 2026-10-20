@@ -8,16 +8,17 @@
 {% if not creds_ok %}
 <div class="card" style="border-left:4px solid #fbbf24;background:#2a2416">
   <h2 style="color:#fbbf24">PayPal credentials missing</h2>
-  <p>The app will run, but <code>/subscribe</code> and <code>/setup/register-plans</code> are disabled
-  until Client ID and Client Secret are set.</p>
+  <p>The app runs, but <code>/subscribe</code> and <code>Register plans</code> stay disabled until
+  a Client ID and Secret are saved. Follow the walkthrough below.</p>
 </div>
 {% endif %}
 
-<div class="card">
-  <h2>PayPal credentials</h2>
+<div class="card" id="creds-card">
+  <h2>Get PayPal sandbox credentials</h2>
+
   {% if creds_locked %}
     <p><strong>Locked to <code>.env</code></strong> (<code>CREDS_FROM_ENV_ONLY=1</code>).
-    The UI form is disabled. Edit <code>.env</code> and restart to change.</p>
+    The form below is disabled. Edit <code>.env</code> and restart to change.</p>
     <table>
       <tr><th>Client ID</th><td><code>{{ creds_hint.client_id }}</code></td></tr>
       <tr><th>Client Secret</th><td><code>{{ creds_hint.client_secret }}</code></td></tr>
@@ -25,34 +26,211 @@
       <tr><th>SECRET_KEY</th><td><code>{{ creds_hint.secret_key }}</code></td></tr>
     </table>
   {% else %}
-    <p>Values are validated by calling PayPal OAuth, then saved to
-    <code>config/secrets.json</code> with mode <code>0600</code>.</p>
+
+    <p class="muted">
+      Two ways in: open an existing app (fastest if you already see
+      <em>Default Application</em>), or create a new one. Both end at the same
+      place — a Client ID and Secret on the app's page.
+    </p>
+
+    <h3>Shortest path — use an existing app</h3>
+    <ol class="steps">
+      <li>
+        <strong>Open Apps &amp; Credentials.</strong>
+        <p class="muted">You should be on the page headed
+        <em>“You’re in sandbox mode.”</em> If you see a banner asking you to
+        upgrade to view live credentials, ignore it — sandbox is what you want.</p>
+        <p>
+          <a class="btn" href="{{ dashboard_url }}" target="_blank" rel="noopener">
+            Open Apps &amp; Credentials →
+          </a>
+          <button type="button" class="btn secondary" data-copy="{{ dashboard_url }}">Copy URL</button>
+        </p>
+        <pre><code>{{ dashboard_url }}</code></pre>
+      </li>
+      <li>
+        <strong>Under “REST API apps”, click an existing app name.</strong>
+        <p class="muted">Most sandbox accounts already have one called
+        <em>Default Application</em>. Its Client ID and Secret are shown on the
+        app's own page. Skip to step 4.</p>
+      </li>
+    </ol>
+
+    <h3>Or create a new app</h3>
+    <ol class="steps" start="3">
+      <li>
+        <strong>Click “Create App” and fill the dialog.</strong>
+        <p class="muted">The dialog has exactly three fields. Here is what each one means:</p>
+
+        <table class="fields">
+          <tr>
+            <th>App Name</th>
+            <td>
+              Any label you recognise later. Suggestions: <code>paypal-saas-mvp</code>
+              or the brand name you set above. It has no effect on the API.
+            </td>
+          </tr>
+          <tr>
+            <th>Type</th>
+            <td>
+              <p><strong>Choose Merchant</strong> — “Accept payments as a merchant (seller)”.
+              Your app is a single seller taking its own payments, which is exactly
+              this case.</p>
+              <p class="muted">Do not choose <em>Platform</em>. Platform is for marketplaces
+              and partner onboarding — it creates a special partner account and
+              grants scopes this app does not use. PayPal's own docs say:
+              “For Embedded integration, select Merchant.”</p>
+            </td>
+          </tr>
+          <tr>
+            <th>Sandbox Account</th>
+            <td>
+              <p>The <strong>business</strong> sandbox account that the REST
+              credentials act on behalf of — the “seller” in every test
+              transaction. PayPal creates one for you and pre-selects it,
+              usually looking like <code>sb-xxxx@business.example.com (US)</code>.
+              <strong>Keep the default.</strong></p>
+              <p class="muted">If the dropdown is empty, you have no business
+              sandbox account yet. Create one first:</p>
+              <p>
+                <a class="btn secondary" href="{{ sandbox_accounts_url }}" target="_blank" rel="noopener">
+                  Open Sandbox Accounts →
+                </a>
+                <button type="button" class="btn secondary" data-copy="{{ sandbox_accounts_url }}">Copy URL</button>
+              </p>
+              <p class="muted">On that page: <em>Create Account → Business →</em>
+              accept the defaults → <em>Create</em>. Then return to
+              Apps &amp; Credentials and re-open the Create App dialog.</p>
+            </td>
+          </tr>
+        </table>
+
+        <p class="muted">Click <strong>Create App</strong> at the bottom of the dialog.</p>
+      </li>
+      <li>
+        <strong>Copy the Client ID and Secret from the new row.</strong>
+        <p class="muted">The app appears under “REST API apps”. The Client ID is
+        visible in the row; the Secret is masked with dots and has a copy icon
+        next to it. If you lose the Secret, use the app's page to regenerate it.</p>
+        <p class="muted"><strong>Do not share these.</strong> PayPal's own banner on
+        that page says: “Store credentials safely, and never share client IDs or
+        secrets publicly.” The form below writes them to
+        <code>config/secrets.json</code> with mode <code>0600</code>.</p>
+      </li>
+      <li>
+        <strong>Paste into the form below and save.</strong>
+        <p class="muted">The app calls PayPal OAuth once to validate. A bad
+        Client ID or Secret is rejected before anything is written.</p>
+      </li>
+    </ol>
+
+    <h3>Webhook ID — a separate, later step</h3>
+    <p class="muted">
+      The Client ID and Secret are enough to <em>create</em> subscriptions.
+      To <em>receive</em> lifecycle events you also need a Webhook ID, which
+      lives on a different part of the same app page:
+    </p>
+    <ol class="steps">
+      <li>Open your REST app (the same app name from step 2 or 3).</li>
+      <li>Find the <strong>Webhooks</strong> section <em>on that app's page</em>
+          and click <strong>Add Webhook</strong>.</li>
+      <li>URL: <code>{{ cfg.BASE_URL }}/webhook</code> — it must be public HTTPS,
+          so run ngrok first (see below).</li>
+      <li>Tick <code>BILLING.SUBSCRIPTION.ACTIVATED</code>,
+          <code>BILLING.SUBSCRIPTION.CANCELLED</code>,
+          <code>BILLING.SUBSCRIPTION.EXPIRED</code>, and
+          <code>PAYMENT.SALE.COMPLETED</code>.</li>
+      <li>Save, then copy the <strong>Webhook ID</strong> (starts with
+          <code>WH-</code>) into the field below.</li>
+    </ol>
+
+    <p class="warn-inline">
+      <strong>Not the NVP/SOAP section.</strong> On the Apps &amp; Credentials
+      page there is also a section headed <em>“NVP/SOAP API apps — Setup and
+      manage webhooks for NVP/SOAP APIs.”</em> That configures the legacy SOAP
+      webhooks. This app uses the REST API; its webhooks are on the REST app's
+      own page, not there.
+    </p>
+
+    <h3>Public HTTPS URL for the webhook</h3>
+    <p class="muted">
+      PayPal cannot reach <code>localhost</code>. Expose the app first, then
+      paste the public URL into <code>BASE_URL</code> in <code>.env</code> and
+      into the webhook URL above:
+    </p>
+    <pre><code># Claim a free static domain at https://dashboard.ngrok.com/cloud-edge/domains
+ngrok http --domain=your-static-name.ngrok-free.app 5000</code></pre>
+    <p class="muted">
+      Current <code>BASE_URL</code>: <code>{{ cfg.BASE_URL }}</code>
+      {% if 'your-static-ngrok-domain' in cfg.BASE_URL %}
+        <span style="color:#fbbf24">(still the placeholder — replace before adding the webhook)</span>
+      {% endif %}
+    </p>
+
+    <h3>Common confusions</h3>
+    <table class="fields">
+      <tr>
+        <th>“Upgrade your account to PayPal for Business to view live credentials”</th>
+        <td>Ignore. That banner is about <em>live</em> credentials. Sandbox
+        credentials are what this app needs.</td>
+      </tr>
+      <tr>
+        <th>“Our dashboard works best on desktop”</th>
+        <td>Cosmetic. The Create App dialog works on mobile, but copy-paste of
+        the Secret is easier on desktop.</td>
+      </tr>
+      <tr>
+        <th>I see two credential rows, one masked</th>
+        <td>That is the existing app's Client ID (visible) and Secret (masked).
+        Both belong to the same app.</td>
+      </tr>
+      <tr>
+        <th>I see no “Create App” button</th>
+        <td>You are on the Live tab, not Sandbox. Look for the
+        “You’re in sandbox mode” banner at the top of Apps &amp; Credentials.</td>
+      </tr>
+    </table>
+
+    <h3>Paste and save</h3>
+    <p class="muted" style="font-size:.85rem">
+      Current state:
+      Client ID <code>{{ creds_hint.client_id }}</code> &middot;
+      Secret <code>{{ creds_hint.client_secret }}</code> &middot;
+      Webhook <code>{{ creds_hint.webhook_id }}</code> &middot;
+      SECRET_KEY <code>{{ creds_hint.secret_key }}</code>
+    </p>
     <p class="muted" style="font-size:.85rem">
       Rate limited to 5 save/test attempts per minute per IP.
-      No CSRF token yet &mdash; use <code>SETUP_REQUIRES_LOGIN=1</code> if this instance is exposed.
+      No CSRF token yet &mdash; set <code>SETUP_REQUIRES_LOGIN=1</code> if this instance is exposed.
     </p>
-    <table style="margin-bottom:1rem">
-      <tr><th>Client ID</th><td><code>{{ creds_hint.client_id }}</code></td></tr>
-      <tr><th>Client Secret</th><td><code>{{ creds_hint.client_secret }}</code></td></tr>
-      <tr><th>Webhook ID</th><td><code>{{ creds_hint.webhook_id }}</code></td></tr>
-      <tr><th>SECRET_KEY</th><td><code>{{ creds_hint.secret_key }}</code></td></tr>
-    </table>
-    <form id="creds-form">
+
+    <form id="creds-form" autocomplete="off">
       <label>PayPal Client ID
-        <input type="text" name="paypal_client_id" placeholder="AX..." autocomplete="off">
+        <span class="field-row">
+          <input type="text" name="paypal_client_id" placeholder="AX..." autocomplete="off" spellcheck="false">
+          <button type="button" class="btn secondary" data-copy-target="paypal_client_id">Copy field</button>
+        </span>
       </label>
       <label>PayPal Client Secret
-        <input type="password" name="paypal_client_secret" placeholder="EL..." autocomplete="new-password">
+        <span class="field-row">
+          <input type="password" name="paypal_client_secret" placeholder="EL..." autocomplete="new-password">
+          <button type="button" class="btn secondary" data-copy-target="paypal_client_secret">Copy field</button>
+        </span>
       </label>
-      <label>Webhook ID (optional; needed for webhook verification)
-        <input type="text" name="webhook_id" autocomplete="off">
+      <label>Webhook ID (optional now; needed for webhook signature verification)
+        <span class="field-row">
+          <input type="text" name="webhook_id" placeholder="WH-..." autocomplete="off" spellcheck="false">
+          <button type="button" class="btn secondary" data-copy-target="webhook_id">Copy field</button>
+        </span>
       </label>
       <label>Flask SECRET_KEY (optional; changing it invalidates all sessions)
         <input type="password" name="secret_key" autocomplete="new-password">
       </label>
-      <button type="submit" class="btn">Save and validate</button>
-      <button type="button" class="btn secondary" id="creds-test">Test without saving</button>
-      <span id="creds-msg" style="margin-left:.5rem"></span>
+      <p>
+        <button type="submit" class="btn">Save and validate</button>
+        <button type="button" class="btn secondary" id="creds-test">Test without saving</button>
+        <span id="creds-msg" class="status-msg"></span>
+      </p>
     </form>
   {% endif %}
 </div>
@@ -68,8 +246,10 @@
     <label>Pro tier name<input name="tier_pro_name" value="{{ plans.pro.name }}"></label>
     <label>Pro price<input name="tier_pro_price" value="{{ plans.pro.price }}"></label>
     <label>Currency code<input name="currency_code" value="{{ current_brand.symbol }}"></label>
-    <button type="submit" class="btn">Save configuration</button>
-    <span id="config-status" style="margin-left:.5rem"></span>
+    <p>
+      <button type="submit" class="btn">Save configuration</button>
+      <span id="config-status" class="status-msg"></span>
+    </p>
   </form>
 </div>
 
@@ -87,8 +267,10 @@
     <label>SVG, PNG, JPG, or WEBP
       <input type="file" name="file" accept=".svg,.png,.jpg,.jpeg,.webp">
     </label>
-    <button type="submit" class="btn">Upload logo</button>
-    <span id="asset-status" style="margin-left:.5rem"></span>
+    <p>
+      <button type="submit" class="btn">Upload logo</button>
+      <span id="asset-status" class="status-msg"></span>
+    </p>
   </form>
 </div>
 
@@ -96,8 +278,15 @@
   <h2>Register plans with PayPal</h2>
   <p>Registers the current brand and tier prices as PayPal billing plans.
   Requires credentials above.</p>
-  <button id="register-plans-btn" class="btn">Register plans</button>
-  <div id="register-plans-status" style="margin-top:.5rem"></div>
+  <p>
+    <button id="register-plans-btn" class="btn" {% if not creds_ok %}disabled{% endif %}>
+      Register plans
+    </button>
+    {% if not creds_ok %}
+      <span class="muted" style="font-size:.85rem">Connect PayPal first (save credentials above).</span>
+    {% endif %}
+  </p>
+  <div id="register-plans-status" class="status-msg"></div>
 </div>
 
 <div class="card">
@@ -123,22 +312,65 @@
 <div class="card">
   <h2>Port scan</h2>
   <p>Hosts: <code>{{ scan_hosts | join(', ') }}</code><br>Ports: <code>{{ scan_ports | join(', ') }}</code></p>
-  <button class="btn" id="scan-btn">Scan now</button>
-  <div id="scan-status" style="margin-top:.5rem;color:#94a3b8"></div>
+  <p><button class="btn" id="scan-btn">Scan now</button></p>
+  <div id="scan-status" class="status-msg"></div>
   <table id="scan-table" style="display:none;margin-top:.75rem">
     <thead><tr><th>Endpoint</th><th>State</th><th>Identity</th><th>Detail</th></tr></thead>
     <tbody></tbody>
   </table>
 </div>
 
+<style>
+  .steps { padding-left:1.25rem; }
+  .steps li { margin-bottom:1rem; }
+  .steps p { margin:.25rem 0 .4rem; }
+  table.fields { width:100%; border-collapse:collapse; margin:.5rem 0 1rem; font-size:.9rem; }
+  table.fields th { width:9rem; text-align:left; vertical-align:top; color:#94a3b8;
+                    font-weight:600; padding:.5rem .6rem; border-bottom:1px solid #334155; }
+  table.fields td { padding:.5rem .6rem; border-bottom:1px solid #334155; vertical-align:top; }
+  table.fields td p { margin:.2rem 0; }
+  .warn-inline { border-left:3px solid #fbbf24; background:#2a2416; padding:.6rem .8rem;
+                 border-radius:.4rem; margin:.75rem 0; }
+  .field-row { display:flex; gap:.4rem; align-items:center; }
+  .field-row input { flex:1; }
+  .field-row button { white-space:nowrap; }
+  .status-msg { margin-left:.5rem; font-size:.9rem; }
+  .status-ok { color:#34d399; }
+  .status-bad { color:#f87171; }
+  .status-busy { color:#94a3b8; }
+</style>
+
 <script>
 (function () {
-  function setStatus(id, msg, ok) {
+  function setStatus(id, msg, kind) {
     var el = document.getElementById(id);
     if (!el) return;
     el.textContent = msg;
-    el.style.color = ok ? '#34d399' : '#f87171';
+    el.className = 'status-msg ' +
+      (kind === 'ok' ? 'status-ok' : kind === 'bad' ? 'status-bad' : 'status-busy');
   }
+  function flash(btn, text) {
+    var old = btn.textContent;
+    btn.textContent = text;
+    setTimeout(function () { btn.textContent = old; }, 1400);
+  }
+
+  document.querySelectorAll('[data-copy]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var v = btn.getAttribute('data-copy');
+      navigator.clipboard.writeText(v).then(function () { flash(btn, 'Copied'); })
+        .catch(function () { window.prompt('Copy this value:', v); });
+    });
+  });
+  document.querySelectorAll('[data-copy-target]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var name = btn.getAttribute('data-copy-target');
+      var input = document.querySelector('input[name="' + name + '"]');
+      if (!input || !input.value) { flash(btn, 'Empty'); return; }
+      navigator.clipboard.writeText(input.value).then(function () { flash(btn, 'Copied'); })
+        .catch(function () { window.prompt('Copy this value:', input.value); });
+    });
+  });
 
   var credsForm = document.getElementById('creds-form');
   if (credsForm) {
@@ -146,7 +378,7 @@
       e.preventDefault();
       var data = {};
       new FormData(this).forEach(function (v, k) { data[k] = v; });
-      setStatus('creds-msg', 'Saving and validating…', true);
+      setStatus('creds-msg', 'Saving and validating…', 'busy');
       fetch('/setup/secrets', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -158,19 +390,19 @@
           var msg = x.b.session_invalidated
             ? 'Saved. SECRET_KEY changed — you have been logged out. Reloading…'
             : 'Saved and validated by PayPal. Reloading…';
-          setStatus('creds-msg', msg, true);
+          setStatus('creds-msg', msg, 'ok');
           setTimeout(function () { location.reload(); }, 700);
         } else {
-          setStatus('creds-msg', 'Failed (' + x.s + '): ' + (x.b.error || 'unknown'), false);
+          setStatus('creds-msg', 'Failed (' + x.s + '): ' + (x.b.error || 'unknown'), 'bad');
         }
       })
-      .catch(function (e) { setStatus('creds-msg', 'Error: ' + e.message, false); });
+      .catch(function (e) { setStatus('creds-msg', 'Error: ' + e.message, 'bad'); });
     });
 
     document.getElementById('creds-test').addEventListener('click', function () {
       var data = {};
       new FormData(credsForm).forEach(function (v, k) { data[k] = v; });
-      setStatus('creds-msg', 'Testing…', true);
+      setStatus('creds-msg', 'Testing…', 'busy');
       fetch('/setup/secrets/test', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -178,10 +410,10 @@
       })
       .then(function (r) { return r.json().then(function (j) { return {s: r.status, b: j}; }); })
       .then(function (x) {
-        if (x.b.ok) setStatus('creds-msg', 'Test OK (HTTP ' + x.b.status + ')', true);
-        else setStatus('creds-msg', 'Test failed (' + (x.b.status || x.s) + '): ' + (x.b.error || x.b.detail || 'unknown'), false);
+        if (x.b.ok) setStatus('creds-msg', 'Test OK (HTTP ' + x.b.status + ')', 'ok');
+        else setStatus('creds-msg', 'Test failed (' + (x.b.status || x.s) + '): ' + (x.b.error || x.b.detail || 'unknown'), 'bad');
       })
-      .catch(function (e) { setStatus('creds-msg', 'Error: ' + e.message, false); });
+      .catch(function (e) { setStatus('creds-msg', 'Error: ' + e.message, 'bad'); });
     });
   }
 
@@ -189,45 +421,52 @@
     e.preventDefault();
     var data = {};
     new FormData(this).forEach(function (v, k) { data[k] = v; });
-    setStatus('config-status', 'Saving…', true);
+    setStatus('config-status', 'Saving…', 'busy');
     fetch('/setup/config', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)})
       .then(function (r) { return r.json(); })
       .then(function (j) {
-        if (j.ok) { setStatus('config-status', 'Saved. Reloading…', true); setTimeout(function () { location.reload(); }, 500); }
-        else setStatus('config-status', 'Failed: ' + (j.error || 'unknown'), false);
+        if (j.ok) { setStatus('config-status', 'Saved. Reloading…', 'ok'); setTimeout(function () { location.reload(); }, 500); }
+        else setStatus('config-status', 'Failed: ' + (j.error || 'unknown'), 'bad');
       })
-      .catch(function (e) { setStatus('config-status', 'Error: ' + e.message, false); });
+      .catch(function (e) { setStatus('config-status', 'Error: ' + e.message, 'bad'); });
   });
 
   document.getElementById('asset-form').addEventListener('submit', function (e) {
     e.preventDefault();
     var fd = new FormData(this);
-    setStatus('asset-status', 'Uploading…', true);
+    setStatus('asset-status', 'Uploading…', 'busy');
     fetch('/setup/asset', {method: 'POST', body: fd})
       .then(function (r) { return r.json(); })
       .then(function (j) {
-        if (j.ok) { setStatus('asset-status', 'Uploaded. Reloading…', true); setTimeout(function () { location.reload(); }, 500); }
-        else setStatus('asset-status', 'Failed: ' + (j.error || 'unknown'), false);
+        if (j.ok) { setStatus('asset-status', 'Uploaded. Reloading…', 'ok'); setTimeout(function () { location.reload(); }, 500); }
+        else setStatus('asset-status', 'Failed: ' + (j.error || 'unknown'), 'bad');
       })
-      .catch(function (e) { setStatus('asset-status', 'Error: ' + e.message, false); });
+      .catch(function (e) { setStatus('asset-status', 'Error: ' + e.message, 'bad'); });
   });
 
   document.getElementById('register-plans-btn').addEventListener('click', function () {
     var s = document.getElementById('register-plans-status');
+    s.className = 'status-msg status-busy';
     s.textContent = 'Registering…';
     fetch('/setup/register-plans', {method: 'POST'})
       .then(function (r) { return r.json().then(function (j) { return {status: r.status, body: j}; }); })
       .then(function (x) {
-        if (x.body.ok) s.innerHTML = 'Registered: basic=<code>' + x.body.plan_id_basic + '</code>, pro=<code>' + x.body.plan_id_pro + '</code>';
-        else s.textContent = 'Failed (' + x.status + '): ' + (x.body.error || 'unknown');
+        if (x.body.ok) {
+          s.className = 'status-msg status-ok';
+          s.innerHTML = 'Registered: basic=<code>' + x.body.plan_id_basic + '</code>, pro=<code>' + x.body.plan_id_pro + '</code>';
+        } else {
+          s.className = 'status-msg status-bad';
+          s.textContent = 'Failed (' + x.status + '): ' + (x.body.error || 'unknown');
+        }
       })
-      .catch(function (e) { s.textContent = 'Error: ' + e.message; });
+      .catch(function (e) { s.className = 'status-msg status-bad'; s.textContent = 'Error: ' + e.message; });
   });
 
   document.getElementById('scan-btn').addEventListener('click', function () {
     var status = document.getElementById('scan-status');
     var table = document.getElementById('scan-table');
     var tbody = table.querySelector('tbody');
+    status.className = 'status-msg status-busy';
     status.textContent = 'Scanning…';
     tbody.innerHTML = '';
     fetch('/api/ports/scan', {
@@ -237,6 +476,7 @@
     .then(function (r) { return r.json(); })
     .then(function (j) {
       table.style.display = 'table';
+      status.className = 'status-msg';
       status.textContent = 'Scanned ' + j.results.length + ' endpoints at ' + new Date(j.scanned_at * 1000).toLocaleTimeString();
       j.results.forEach(function (r) {
         var tr = document.createElement('tr');
@@ -248,7 +488,7 @@
         tbody.appendChild(tr);
       });
     })
-    .catch(function (e) { status.textContent = 'Scan failed: ' + e.message; });
+    .catch(function (e) { status.className = 'status-msg status-bad'; status.textContent = 'Scan failed: ' + e.message; });
   });
 })();
 </script>

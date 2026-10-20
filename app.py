@@ -67,6 +67,12 @@ CLIENT_SECRET = _cred("PAYPAL_CLIENT_SECRET")
 WEBHOOK_ID    = _cred("WEBHOOK_ID")
 BASE_URL      = os.getenv("BASE_URL", "http://localhost:5000").rstrip("/")
 API_BASE      = os.getenv("PAYPAL_API_BASE", "https://api-m.sandbox.paypal.com")
+PAYPAL_DASHBOARD_URL = os.getenv(
+    "PAYPAL_DASHBOARD_URL",
+    "https://developer.paypal.com/dashboard/applications/sandbox")
+PAYPAL_SANDBOX_ACCOUNTS_URL = os.getenv(
+    "PAYPAL_SANDBOX_ACCOUNTS_URL",
+    "https://developer.paypal.com/dashboard/accounts")
 PORT          = int(os.getenv("PORT", "5000"))
 HOST          = os.getenv("HOST", "0.0.0.0")
 CORS_PAGES_ORIGIN = os.getenv("CORS_PAGES_ORIGIN", "https://swipswaps.github.io")
@@ -267,7 +273,10 @@ def setup_page():
     return render_template("setup.html",
         brand=_brand()["name"], cfg=cfg, plans=_plans(),
         current_brand=_brand(), scan_hosts=SCAN_HOSTS, scan_ports=SCAN_PORTS,
-        creds_ok=_creds_ok(), creds_locked=CREDS_FROM_ENV_ONLY, creds_hint=creds_hint)
+        creds_ok=_creds_ok(), creds_locked=CREDS_FROM_ENV_ONLY, creds_hint=creds_hint,
+        dashboard_url=PAYPAL_DASHBOARD_URL,
+        sandbox_accounts_url=PAYPAL_SANDBOX_ACCOUNTS_URL,
+        setup_url=f"http://localhost:{PORT}/setup")
 
 # ---------- secrets endpoints ----------
 @app.route("/setup/secrets", methods=["GET"])

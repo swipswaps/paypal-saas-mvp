@@ -1,4 +1,15 @@
 {% extends "base.html" %}{% block content %}
+{% if not creds_configured %}
+<div class="card" id="onboarding-banner" style="border-left:4px solid #fbbf24;background:#2a2416">
+  <h3 style="margin-top:0;color:#fbbf24">PayPal is not connected yet</h3>
+  <p style="margin:.4rem 0">Subscriptions will not work until you add sandbox credentials.
+  This takes about 2 minutes.</p>
+  <p style="margin:.4rem 0">
+    <a class="btn" href="{{ url_for('setup_page') }}">Finish setup →</a>
+    <a class="btn secondary" href="{{ url_for('setup_page') }}#creds-card">I already have credentials</a>
+  </p>
+</div>
+{% endif %}
 <div class="card">
   {% if BRAND_HERO_VIDEO %}
     <video class="hero-media" controls src="{{ url_for('static', filename=BRAND_HERO_VIDEO) }}"></video>

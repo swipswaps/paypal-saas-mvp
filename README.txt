@@ -90,6 +90,51 @@ REQUIRE LOGIN FOR /setup (recommended for exposed deployments)
 echo "SETUP_REQUIRES_LOGIN=1" >> .env
 docker compose up -d --build
 
+
+PAYPAL DASHBOARD WALKTHROUGH
+----------------------------
+The Create App dialog asks three fields. PayPal does not explain them.
+
+  App Name          any label, e.g. paypal-saas-mvp
+  Type              choose Merchant, NOT Platform
+                    Merchant = "Accept payments as a merchant (seller)".
+                    Your app is a single seller taking its own payments.
+                    Platform = marketplaces / partner onboarding. PayPal's
+                    own docs say "For Embedded integration, select Merchant."
+                    (developer.paypal.com/docs/multiparty/create-account/)
+  Sandbox Account   the Business sandbox account the REST credentials act
+                    on behalf of - the "seller" in test transactions.
+                    PayPal creates one and pre-selects it, usually
+                    sb-...@business.example.com (US). Keep the default.
+                    If the dropdown is empty, create a Business sandbox
+                    account first at developer.paypal.com/dashboard/accounts
+
+Fastest path if an app already exists:
+  Apps & Credentials > REST API apps > click "Default Application"
+  Client ID and Secret are on that page. No Create App needed.
+
+Where the credentials appear:
+  Apps & Credentials > REST API apps > <app name>
+  Client ID visible in the row, Secret masked with a copy icon.
+
+Webhook ID is a separate step on the SAME app page:
+  Open the REST app > Webhooks > Add Webhook
+  URL: https://<your-ngrok-host>/webhook
+  Events: BILLING.SUBSCRIPTION.ACTIVATED, .CANCELLED, .EXPIRED,
+          PAYMENT.SALE.COMPLETED
+  Copy the WH-... ID into WEBHOOK_ID in .env
+
+Do NOT use the "NVP/SOAP API apps - Setup and manage webhooks for
+NVP/SOAP APIs" section. That is the legacy SOAP path. This app uses the
+REST API; its webhooks live on the REST app's own page.
+
+Banners to ignore:
+  "Upgrade your account to PayPal for Business to view live credentials"
+    -> about LIVE credentials; sandbox is what you need.
+  "Our dashboard works best on desktop"
+    -> cosmetic; copy-paste of the Secret is easier on desktop.
+
+
 IDEMPOTENCY
 -----------
 - Managed files overwritten on each bootstrap run.
