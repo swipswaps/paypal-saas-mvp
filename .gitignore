@@ -10,3 +10,5 @@ config/secrets.json
 config/secrets.json.tmp
 static/brand/*
 !static/brand/.gitkeep
+fix*.sh
+app.py.broken.*
